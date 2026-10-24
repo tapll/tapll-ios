@@ -307,6 +307,87 @@ final class CrashReporter: @unchecked Sendable {
         record(type: type, reason: reason, kind: kind, frames: addresses, hangDurationMs: nil)
     }
 
+    /**
+     * A Dart or JavaScript error from a wrapper, with its parsed stack (`@_spi(Wrapper)` on `Union`).
+     *
+     * Non-fatal goes the same way `recordError` does: written off the caller's thread, uploaded next
+     * flush. **Fatal is written synchronously**, on the caller: the managed runtime is about to take
+     * the process down, and a report queued on `persistQueue` would die with it. It is a
+     * `.report.json` like any other, so the next launch uploads it. No binary images: a managed
+     * frame has no image to symbolicate against.
+     */
+    func recordManagedError(type: String,
+                            reason: String?,
+                            frames: [ManagedFrame],
+                            fatal: Bool,
+                            threadName: String) {
+        lock.lock()
+        let sessionId = self.sessionId
+        let customKeys = self.customKeys.isEmpty ? nil : self.customKeys
+        var reportState = state
+        lock.unlock()
+        reportState.uptimeMs = Int(ProcessInfo.processInfo.systemUptime * 1000)
+
+        let capped = frames.prefix(CrashLimits.maxFramesPerThread)
+        let wireFrames = capped.enumerated().map { position, frame in
+            ManagedFrameWire(n: position,
+                             function: CrashReporter.bounded(frame.function) ?? "<anonymous>",
+                             module: frame.module.flatMap(CrashReporter.bounded),
+                             file: frame.file.flatMap(CrashReporter.bounded),
+                             // Positive on the wire; a `0` or negative from a parser is "unknown".
+                             line: frame.line.flatMap { $0 > 0 ? $0 : nil },
+                             column: frame.column.flatMap { $0 > 0 ? $0 : nil },
+                             inApp: frame.inApp)
+        }
+        let trimmedType = type.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind: CrashKind = fatal ? .fatal : .nonfatal
+        let report = CrashReportWire(
+            crashId: UUID().uuidString,
+            kind: kind,
+            platform: CrashSDKInfo.platform,
+            isFatal: fatal,
+            crashedAt: Int64(clock.now.timeIntervalSince1970 * 1000),
+            sessionId: sessionId,
+            context: device,
+            state: reportState,
+            signal: nil,
+            // A managed report is grouped by its thrown type alone, so it must never be blank.
+            exception: CrashExceptionWire(type: String((trimmedType.isEmpty ? "Error" : trimmedType).prefix(128)),
+                                          reason: reason.map { String($0.prefix(CrashLimits.reasonMaxLength)) }),
+            hangDurationMs: nil,
+            images: [],
+            threads: [CrashThreadWire(index: 0,
+                                      name: String(threadName.prefix(128)),
+                                      crashed: true,
+                                      frames: [],
+                                      managedFrames: wireFrames,
+                                      framesTruncated: frames.count > CrashLimits.maxFramesPerThread)],
+            breadcrumbs: nil,
+            customKeys: customKeys
+        )
+        if fatal {
+            do {
+                try store.write(report: report)
+            } catch {
+                logger.log(.warning, "crash: could not store a fatal managed report (\(error))")
+            }
+        } else {
+            persistQueue.async { [store, config, logger] in
+                do {
+                    try store.write(report: report)
+                    store.trim(max: config.maxStored)
+                } catch {
+                    logger.log(.warning, "crash: could not store a nonfatal managed report (\(error))")
+                }
+            }
+        }
+    }
+
+    /// Empty is absent, and anything past the contract's 256 is cut rather than rejected whole.
+    private static func bounded(_ text: String) -> String? {
+        text.isEmpty ? nil : String(text.prefix(256))
+    }
+
     private func record(type: String,
                         reason: String?,
                         kind: CrashKind,
@@ -337,6 +418,7 @@ final class CrashReporter: @unchecked Sendable {
         let report = CrashReportWire(
             crashId: UUID().uuidString,
             kind: kind,
+            platform: CrashSDKInfo.platform,
             // Only `fatal` is fatal. A logged error and a frozen main thread are their own severities
             // and the server counts them in their own columns.
             isFatal: kind == .fatal,
@@ -419,6 +501,7 @@ final class CrashReporter: @unchecked Sendable {
         let report = CrashReportWire(
             crashId: id,
             kind: .hang,
+            platform: CrashSDKInfo.platform,
             isFatal: false,
             crashedAt: record.crashedAt,
             sessionId: sidecar.sessionId,
@@ -514,6 +597,20 @@ final class CrashReporter: @unchecked Sendable {
         }
     }
 
+    /**
+     * Converts a report to crash contract v2 at upload time.
+     *
+     * The on-disk formats are untouched: a `.ucr` record and a `.report.json` written by 0.3.x have
+     * no `platform`, and the app may well have been updated before they are sent. Converting here
+     * rather than rewriting files means a record is never migrated, only read — and the only thing
+     * v2 adds that a v1 report can lack is `platform`, which for this SDK is always `ios`.
+     */
+    static func asV2(_ report: CrashReportWire) -> CrashReportWire {
+        var report = report
+        if report.platform == nil { report.platform = CrashSDKInfo.platform }
+        return report
+    }
+
     func setEnvironment(_ environment: Environment) {
         lock.lock(); defer { lock.unlock() }
         refinedEnvironment = environment
@@ -531,7 +628,7 @@ final class CrashReporter: @unchecked Sendable {
                                    privacyMode: config.privacyMode,
                                    sentAt: Int64(clock.now.timeIntervalSince1970 * 1000),
                                    identity: identity,
-                                   reports: Array(reports.prefix(CrashLimits.maxReportsPerBatch)))
+                                   reports: reports.prefix(CrashLimits.maxReportsPerBatch).map(CrashReporter.asV2))
         do {
             let body = try WireCoding.encoder.encode(batch)
             let response = try await transport.send(body, writeKey: config.writeKey)

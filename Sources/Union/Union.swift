@@ -14,6 +14,8 @@ import Foundation
 public enum Union {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var client: Client?
+    /// `<name>/<version>` from `setWrapper`, read by `configure` under `lock`.
+    nonisolated(unsafe) private static var wrapper: String?
 
     private static var shared: Client? {
         lock.lock(); defer { lock.unlock() }
@@ -24,8 +26,38 @@ public enum Union {
     public static func configure(writeKey: String, privacyMode: PrivacyMode, options: Options = Options()) {
         lock.lock()
         client?.shutdown()
-        client = Client(writeKey: writeKey, privacyMode: privacyMode, options: options)
+        client = Client(writeKey: writeKey, privacyMode: privacyMode, options: options, wrapper: wrapper)
         lock.unlock()
+    }
+
+    /// Wrapper bridge, see `Sources/Union/Wrapper.swift`. Lives here only because the state is private.
+    static func registerWrapper(name: String, version: String) {
+        lock.lock(); defer { lock.unlock() }
+        if let client {
+            client.logger.log(.warning, "setWrapper(\(name)/\(version)) ignored: it must be called before configure")
+            return
+        }
+        guard let value = WrapperInfo.value(name: name, version: version) else {
+            SDKLogger(level: .warning, handler: nil).log(.warning, "setWrapper ignored: \"\(name)\"/\"\(version)\" is not a valid <name>/<version> of at most \(WrapperInfo.maxLength) characters")
+            return
+        }
+        wrapper = value
+    }
+
+    /// Test hook: shuts the client down and forgets a registered wrapper, so suites that touch the
+    /// facade do not leak into each other.
+    static func resetForTesting() {
+        lock.lock(); defer { lock.unlock() }
+        client?.shutdown()
+        client = nil
+        wrapper = nil
+    }
+
+    static var currentClient: Client? { shared }
+
+    static var registeredWrapper: String? {
+        lock.lock(); defer { lock.unlock() }
+        return wrapper
     }
 
     /// Custom event. `name` must be lowercase snake_case (`workout_started`); `$`-prefixed names are reserved.

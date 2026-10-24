@@ -4,6 +4,8 @@ struct DeviceContext: Codable, Sendable, Equatable {
     var appVersion: String
     var appBuild: String
     var sdkVersion: String
+    /// `<name>/<version>` of a Flutter or React Native wrapper; absent (never null) for a native app.
+    var sdkWrapper: String? = nil
     /// Contract literal: the v1 wire format is iOS-only.
     var osName: String = "iOS"
     var osVersion: String
@@ -15,6 +17,7 @@ struct DeviceContext: Codable, Sendable, Equatable {
         case appVersion = "app_version"
         case appBuild = "app_build"
         case sdkVersion = "sdk_version"
+        case sdkWrapper = "sdk_wrapper"
         case osName = "os_name"
         case osVersion = "os_version"
         case deviceModel = "device_model"

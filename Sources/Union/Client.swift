@@ -15,9 +15,9 @@ final class Client: Sendable {
     @MainActor private var lifecycle: AppLifecycleObserver?
     #endif
 
-    init(writeKey: String, privacyMode: PrivacyMode, options: Options) {
+    init(writeKey: String, privacyMode: PrivacyMode, options: Options, wrapper: String? = nil) {
         logger = SDKLogger(level: options.logLevel, handler: options.logHandler)
-        let device = DeviceContextProvider.current()
+        let device = DeviceContextProvider.current(wrapper: wrapper)
         let environment = options.environment ?? EnvironmentDetector.detect()
         // Deterministic: Swift's `hashValue` is seeded per process, which would give every launch a new queue directory.
         let keyHash = Client.stableHash(writeKey)
@@ -35,7 +35,7 @@ final class Client: Sendable {
         pipeline = EventPipeline(
             config: PipelineConfig(writeKey: writeKey, environment: environment, privacyMode: privacyMode, flushAt: options.flushAt, flushInterval: options.flushInterval, maxQueuedEvents: options.maxQueuedEvents, analyticsCollectionEnabled: options.startsCollecting),
             store: store,
-            transport: URLSessionTransport(endpoint: options.endpoint),
+            transport: URLSessionTransport(endpoint: options.endpoint, userAgent: SDKInfo.userAgent(wrapper: wrapper)),
             identity: identity,
             kv: UserDefaultsStore(),
             clock: SystemClock(),
@@ -50,10 +50,11 @@ final class Client: Sendable {
         let reporter = options.crashReporting
             ? Client.makeCrashReporter(writeKey: writeKey, keyHash: keyHash, environment: environment,
                                        privacyMode: privacyMode, options: options, device: device,
+                                       userAgent: SDKInfo.userAgent(wrapper: wrapper),
                                        identityStore: identityStore, logger: logger)
             : nil
         crash = reporter
-        logger.log(.info, "configured · env=\(environment.rawValue) · privacy=\(privacyMode.rawValue) · sdk=\(SDKInfo.version) · crashes=\(options.crashReporting ? "on" : "off")")
+        logger.log(.info, "configured · env=\(environment.rawValue) · privacy=\(privacyMode.rawValue) · sdk=\(SDKInfo.version)\(wrapper.map { " wrapper=\($0)" } ?? "") · crashes=\(options.crashReporting ? "on" : "off")")
         let p = pipeline
         // The synchronous guess above can be wrong, and with one write key for every build nothing
         // downstream refuses it. StoreKit's signed answer replaces it when it comes; an explicit
@@ -98,6 +99,7 @@ final class Client: Sendable {
                                           privacyMode: PrivacyMode,
                                           options: Options,
                                           device: DeviceContext,
+                                          userAgent: String,
                                           identityStore: IdentityStore,
                                           logger: SDKLogger) -> CrashReporter? {
         guard let store = try? CrashStore.standard(directoryName: keyHash) else {
@@ -113,7 +115,7 @@ final class Client: Sendable {
                                          detectHangs: options.hangDetection,
                                          maxStored: options.maxStoredCrashReports),
             store: store,
-            transport: URLSessionCrashTransport(endpoint: endpoint),
+            transport: URLSessionCrashTransport(endpoint: endpoint, userAgent: userAgent),
             identityStore: identityStore,
             device: device,
             logger: logger,

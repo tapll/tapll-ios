@@ -1,6 +1,6 @@
 import XCTest
 import UnionCrashCore
-@testable import Union
+@testable @_spi(Wrapper) import Union
 
 /// Crash reporting, tested through the one door that is testable.
 ///
@@ -361,6 +361,157 @@ final class CrashTests: XCTestCase {
         // The check value from the zlib documentation: a wrong table produces plausible bytes and a
         // body the server rejects with no explanation.
         XCTAssertEqual(Gzip.crc32(Data("123456789".utf8)), 0xCBF4_3926)
+    }
+
+
+    // MARK: - Crash contract v2
+
+    private func validate(_ batch: CrashBatchWire, file: StaticString = #filePath, line: UInt = #line) throws {
+        let validator = try MiniSchemaValidator(schema: try Fixtures.crashSchemaData())
+        let errors = try validator.validate(try WireCoding.encoder.encode(batch))
+        XCTAssertEqual(errors, [], errors.joined(separator: "\n"), file: file, line: line)
+    }
+
+    private func batch(of report: CrashReportWire) -> CrashBatchWire {
+        CrashBatchWire(batchId: UUID().uuidString, environment: .production, privacyMode: .productAnalytics,
+                       sentAt: 1_700_000_000_000, identity: Identity(installId: UUID().uuidString),
+                       reports: [report])
+    }
+
+    private func reporter(transport: CrashTransport = RecordingCrashTransport()) -> CrashReporter {
+        CrashReporter(config: config(privacy: .productAnalytics), store: store, transport: transport,
+                      identityStore: InMemoryIdentityStore(), device: Fixtures.device,
+                      logger: SDKLogger(level: .none, handler: nil), clock: TestClock())
+    }
+
+    func testABatchIsSentAsContractV2() async throws {
+        let transport = RecordingCrashTransport()
+        let reporter = reporter(transport: transport)
+        reporter.recordError(type: "TestError", reason: nil)
+        reporter.waitForPendingWrites()
+        await reporter.flushPending()
+
+        let body = try XCTUnwrap(transport.bodies.first)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["contract_version"] as? Int, 2)
+        let reports = try XCTUnwrap(json["reports"] as? [[String: Any]])
+        XCTAssertEqual(reports.first?["platform"] as? String, "ios", "v2 carries platform on every report")
+        try validate(try XCTUnwrap(transport.batches.first))
+    }
+
+    func testAReportFileWrittenBy03xUploadsAsV2WithPlatformIos() async throws {
+        // What 0.3.x wrote: a wire report with no `platform` key at all.
+        var old = CrashReportWire(crashId: UUID().uuidString, kind: .nonfatal, platform: nil, isFatal: false,
+                                  crashedAt: 1_700_000_000_000, sessionId: nil, context: Fixtures.device,
+                                  state: nil, signal: nil,
+                                  exception: CrashExceptionWire(type: "OldError", reason: nil),
+                                  hangDurationMs: nil, images: [],
+                                  threads: [CrashThreadWire(index: 0, name: nil, crashed: true, frames: [], framesTruncated: false)],
+                                  breadcrumbs: nil, customKeys: nil)
+        old.platform = nil
+        try store.write(report: old)
+        let onDisk = try String(contentsOf: store.reportURL(id: old.crashId), encoding: .utf8)
+        XCTAssertFalse(onDisk.contains("platform"), "the fixture has to look like a 0.3.x file")
+
+        let transport = RecordingCrashTransport()
+        await reporter(transport: transport).flushPending()
+
+        let sent = try XCTUnwrap(transport.batches.first)
+        XCTAssertEqual(sent.contractVersion, 2)
+        XCTAssertEqual(sent.reports.first?.platform, "ios")
+        try validate(sent)
+        XCTAssertTrue(store.pendingReports().isEmpty, "accepted, so cleared")
+    }
+
+    func testABinaryRecordWrittenBy03xUploadsAsV2WithPlatformIos() async throws {
+        let id = UUID().uuidString
+        XCTAssertEqual(union_crash_capture_live(store.recordURL(id: id).path, SIGSEGV, 0), 0)
+        // The sidecar a 0.3.x SDK wrote: a context without `sdk_wrapper`, which is what Fixtures has.
+        try store.writeContext(CrashContextFile(sessionId: nil, context: Fixtures.device, state: DeviceStateWire(),
+                                                customKeys: nil, sampledAt: 1), id: id)
+        try store.writeImages(CrashReporter.loadedImages(), id: id)
+
+        let transport = RecordingCrashTransport()
+        await reporter(transport: transport).flushPending()
+
+        let sent = try XCTUnwrap(transport.batches.first)
+        XCTAssertEqual(sent.contractVersion, 2)
+        XCTAssertEqual(sent.reports.first?.platform, "ios")
+        XCTAssertEqual(sent.reports.first?.kind, .fatal)
+        try validate(sent)
+        XCTAssertTrue(store.pending(excluding: nil).isEmpty)
+    }
+
+    func testAManagedNonFatalValidatesAgainstV2AndCarriesNoImages() throws {
+        let reporter = reporter()
+        reporter.recordManagedError(
+            type: "FormatException", reason: "Unexpected character",
+            frames: [ManagedFrame(function: "_CheckoutState.build", module: "package:shop/checkout.dart",
+                                  file: "checkout.dart", line: 42, column: 7, inApp: true),
+                     ManagedFrame(function: "", line: 0, inApp: false)],
+            fatal: false, threadName: "main")
+        reporter.waitForPendingWrites()
+
+        let url = try XCTUnwrap(store.pendingReports().first)
+        let report = try WireCoding.decoder.decode(CrashReportWire.self, from: try Data(contentsOf: url))
+        XCTAssertEqual(report.kind, .nonfatal)
+        XCTAssertFalse(report.isFatal)
+        XCTAssertEqual(report.platform, "ios")
+        XCTAssertTrue(report.images.isEmpty, "a managed frame has no image to symbolicate against")
+        XCTAssertEqual(report.exception?.type, "FormatException")
+        let frames = try XCTUnwrap(report.threads.first?.managedFrames)
+        XCTAssertEqual(frames.map(\.n), [0, 1], "n comes from array order")
+        XCTAssertEqual(frames[0].line, 42)
+        XCTAssertEqual(frames[1].function, "<anonymous>", "the contract wants a non-empty function")
+        XCTAssertNil(frames[1].line, "a zero line is unknown, not line 0")
+        try validate(batch(of: report))
+    }
+
+    func testAManagedFatalIsOnDiskImmediatelyAndUploadsOnTheNextLaunch() async throws {
+        let transport = RecordingCrashTransport()
+        let reporter = reporter(transport: transport)
+        reporter.recordManagedError(type: "TypeError", reason: "undefined is not a function",
+                                    frames: [ManagedFrame(function: "onPress", file: "App.js", line: 10, column: 3, inApp: true)],
+                                    fatal: true, threadName: "js")
+        // No `waitForPendingWrites`: the runtime is about to take the process down, so the write
+        // cannot be queued behind anything.
+        let url = try XCTUnwrap(store.pendingReports().first)
+        let report = try WireCoding.decoder.decode(CrashReportWire.self, from: try Data(contentsOf: url))
+        XCTAssertEqual(report.kind, .fatal)
+        XCTAssertTrue(report.isFatal)
+        XCTAssertEqual(report.threads.filter(\.crashed).count, 1)
+        XCTAssertEqual(report.threads.first?.name, "js")
+        try validate(batch(of: report))
+
+        // The next launch.
+        await self.reporter(transport: transport).flushPending()
+        let sent = try XCTUnwrap(transport.batches.first)
+        XCTAssertEqual(sent.contractVersion, 2)
+        XCTAssertEqual(sent.reports.first?.kind, .fatal)
+        XCTAssertEqual(sent.reports.first?.threads.first?.managedFrames.first?.function, "onPress")
+        XCTAssertTrue(store.pendingReports().isEmpty)
+    }
+
+    func testAManagedReportWithABlankTypeStillNamesItsFailure() throws {
+        let reporter = reporter()
+        reporter.recordManagedError(type: "  ", reason: nil, frames: [ManagedFrame(function: "f", inApp: true)],
+                                    fatal: true, threadName: "main")
+        let url = try XCTUnwrap(store.pendingReports().first)
+        let report = try WireCoding.decoder.decode(CrashReportWire.self, from: try Data(contentsOf: url))
+        XCTAssertFalse(try XCTUnwrap(report.exception?.type).trimmingCharacters(in: .whitespaces).isEmpty,
+                       "a report with managed frames needs exception.type")
+    }
+
+    func testManagedStacksAreCappedAndSaySo() throws {
+        let reporter = reporter()
+        let frames = (0..<(CrashLimits.maxFramesPerThread + 5)).map { ManagedFrame(function: "f\($0)", inApp: false) }
+        reporter.recordManagedError(type: "Deep", reason: nil, frames: frames, fatal: false, threadName: "main")
+        reporter.waitForPendingWrites()
+        let url = try XCTUnwrap(store.pendingReports().first)
+        let report = try WireCoding.decoder.decode(CrashReportWire.self, from: try Data(contentsOf: url))
+        XCTAssertEqual(report.threads.first?.managedFrames.count, CrashLimits.maxFramesPerThread)
+        XCTAssertEqual(report.threads.first?.framesTruncated, true)
+        try validate(batch(of: report))
     }
 
     // MARK: - Hangs

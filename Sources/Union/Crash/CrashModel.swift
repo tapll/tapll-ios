@@ -38,6 +38,23 @@ struct CrashFrameWire: Codable, Sendable, Equatable {
     }
 }
 
+/// A frame of managed code (Dart, JavaScript) that a wrapper reports. No image and no offset: a
+/// function and a source position, with `in_app` as the wrapper's call. Crash contract v2 only.
+struct ManagedFrameWire: Codable, Sendable, Equatable {
+    var n: Int
+    var function: String
+    var module: String?
+    var file: String?
+    var line: Int?
+    var column: Int?
+    var inApp: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case n, function, module, file, line, column
+        case inApp = "in_app"
+    }
+}
+
 struct BinaryImageWire: Codable, Sendable, Equatable {
     var name: String
     /// Uppercase hex, no dashes: this is the join key against an uploaded dSYM's `LC_UUID`, and a
@@ -59,13 +76,49 @@ struct CrashThreadWire: Codable, Sendable, Equatable {
     var index: Int
     var name: String?
     var crashed: Bool
+    /// Native frames. A thread carries either these or `managedFrames`, never both: a thread is one
+    /// runtime's stack, and the wire has one `frames` array.
     var frames: [CrashFrameWire]
+    /// Managed frames (v2). When non-empty they are what is sent as `frames`.
+    var managedFrames: [ManagedFrameWire] = []
     /// True when frames past the cap were dropped, so a cut dump never reads as a short stack.
     var framesTruncated: Bool
 
     enum CodingKeys: String, CodingKey {
         case index, name, crashed, frames
         case framesTruncated = "frames_truncated"
+    }
+}
+
+extension CrashThreadWire {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        index = try c.decode(Int.self, forKey: .index)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        crashed = try c.decode(Bool.self, forKey: .crashed)
+        framesTruncated = try c.decode(Bool.self, forKey: .framesTruncated)
+        // Native first, like the contract: a native frame never parses as managed (no `function`)
+        // and the reverse (no `addr`). An empty array is native, and is the same on the wire.
+        if let native = try? c.decode([CrashFrameWire].self, forKey: .frames) {
+            frames = native
+            managedFrames = []
+        } else {
+            frames = []
+            managedFrames = try c.decode([ManagedFrameWire].self, forKey: .frames)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(index, forKey: .index)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encode(crashed, forKey: .crashed)
+        if managedFrames.isEmpty {
+            try c.encode(frames, forKey: .frames)
+        } else {
+            try c.encode(managedFrames, forKey: .frames)
+        }
+        try c.encode(framesTruncated, forKey: .framesTruncated)
     }
 }
 
@@ -157,6 +210,10 @@ struct BreadcrumbWire: Codable, Sendable, Equatable {
 struct CrashReportWire: Codable, Sendable {
     var crashId: String
     var kind: CrashKind
+    /// Crash contract v2 requires it on every report. Optional **only for decoding**: a report file a
+    /// 0.3.x SDK wrote has none, and `CrashReporter` fills in `ios` when it uploads — a v1 report
+    /// could only have come from this SDK, so the conversion is exact, not a guess.
+    var platform: String?
     /// Cross-checked against `kind` by the contract rather than derived from it: this is the column
     /// every aggregate filters on, and a rejected disagreement beats a pipeline picking a winner.
     var isFatal: Bool
@@ -176,7 +233,7 @@ struct CrashReportWire: Codable, Sendable {
     var customKeys: [String: String]?
 
     enum CodingKeys: String, CodingKey {
-        case kind, context, state, signal, exception, images, threads, breadcrumbs
+        case kind, platform, context, state, signal, exception, images, threads, breadcrumbs
         case crashId = "crash_id"
         case isFatal = "is_fatal"
         case crashedAt = "crashed_at"
@@ -208,7 +265,11 @@ struct CrashBatchWire: Codable, Sendable {
 enum CrashSDKInfo {
     /// Versioned independently of the event contract: the two change for different reasons, and an
     /// SDK may support one and not the other.
-    static let contractVersion = 1
+    ///
+    /// 2 from 0.4.0: `platform` on every report, managed frames for wrappers. Ingest still accepts 1.
+    static let contractVersion = 2
+    /// What every report from this SDK says it is, and what a pre-0.4 report file is converted to.
+    static let platform = "ios"
 }
 
 /// Contract limits, mirrored from `LIMITS.crash`. The C core repeats the ones a handler needs.

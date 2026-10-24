@@ -13,9 +13,11 @@ protocol CrashTransport: Sendable {
 struct URLSessionCrashTransport: CrashTransport {
     let endpoint: URL
     let session: URLSession
+    let userAgent: String
 
-    init(endpoint: URL, session: URLSession? = nil) {
+    init(endpoint: URL, session: URLSession? = nil, userAgent: String = SDKInfo.userAgent()) {
         self.endpoint = endpoint
+        self.userAgent = userAgent
         if let session { self.session = session } else {
             let cfg = URLSessionConfiguration.ephemeral
             cfg.timeoutIntervalForRequest = 20
@@ -37,7 +39,7 @@ struct URLSessionCrashTransport: CrashTransport {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
         req.setValue(writeKey, forHTTPHeaderField: "x-union-key")
-        req.setValue("union-ios/\(SDKInfo.version)", forHTTPHeaderField: "User-Agent")
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         // `httpBody`, never a stream: URLSession would otherwise set `Transfer-Encoding: chunked`,
         // and the route reads a length-bounded body.
         req.httpBody = try Gzip.compress(body)

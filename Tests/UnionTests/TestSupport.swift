@@ -95,7 +95,7 @@ enum Fixtures {
     }
 
     static func crashSchemaData() throws -> Data {
-        let url = Bundle.module.url(forResource: "crash-batch.v1", withExtension: "json", subdirectory: "Fixtures")!
+        let url = Bundle.module.url(forResource: "crash-batch.v2", withExtension: "json", subdirectory: "Fixtures")!
         return try Data(contentsOf: url)
     }
 

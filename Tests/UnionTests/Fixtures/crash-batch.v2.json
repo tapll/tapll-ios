@@ -1,12 +1,15 @@
 {
-  "$ref": "#/definitions/CrashBatchV1",
+  "$ref": "#/definitions/CrashBatchV2",
   "definitions": {
-    "CrashBatchV1": {
+    "CrashBatchV2": {
       "type": "object",
       "properties": {
         "contract_version": {
           "type": "number",
-          "const": 1
+          "enum": [
+            1,
+            2
+          ]
         },
         "batch_id": {
           "type": "string",
@@ -75,6 +78,17 @@
                   "anr"
                 ]
               },
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "ios",
+                  "android"
+                ]
+              },
+              "build_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f-]{7,64}$"
+              },
               "is_fatal": {
                 "type": "boolean"
               },
@@ -101,9 +115,16 @@
                     "type": "string",
                     "maxLength": 32
                   },
+                  "sdk_wrapper": {
+                    "type": "string",
+                    "maxLength": 32
+                  },
                   "os_name": {
                     "type": "string",
-                    "const": "iOS"
+                    "enum": [
+                      "iOS",
+                      "Android"
+                    ]
                   },
                   "os_version": {
                     "type": "string",
@@ -255,7 +276,7 @@
                       "pattern": "^[0-9A-F]{32}$"
                     },
                     "load_addr": {
-                      "$ref": "#/definitions/CrashBatchV1/properties/reports/items/properties/signal/properties/fault_addr"
+                      "$ref": "#/definitions/CrashBatchV2/properties/reports/items/properties/signal/properties/fault_addr"
                     },
                     "size": {
                       "type": "integer",
@@ -298,49 +319,92 @@
                     "frames": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "n": {
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "addr": {
-                            "$ref": "#/definitions/CrashBatchV1/properties/reports/items/properties/signal/properties/fault_addr"
-                          },
-                          "image": {
-                            "anyOf": [
-                              {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "n": {
                                 "type": "integer",
                                 "minimum": 0
                               },
-                              {
-                                "type": "null"
+                              "addr": {
+                                "$ref": "#/definitions/CrashBatchV2/properties/reports/items/properties/signal/properties/fault_addr"
+                              },
+                              "image": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "offset": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "symbol": {
+                                "type": "string",
+                                "maxLength": 256
                               }
-                            ]
+                            },
+                            "required": [
+                              "n",
+                              "addr",
+                              "image",
+                              "offset"
+                            ],
+                            "additionalProperties": false
                           },
-                          "offset": {
-                            "anyOf": [
-                              {
+                          {
+                            "type": "object",
+                            "properties": {
+                              "n": {
                                 "type": "integer",
                                 "minimum": 0
                               },
-                              {
-                                "type": "null"
+                              "function": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256
+                              },
+                              "module": {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              "file": {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              "line": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "column": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "in_app": {
+                                "type": "boolean"
                               }
-                            ]
-                          },
-                          "symbol": {
-                            "type": "string",
-                            "maxLength": 256
+                            },
+                            "required": [
+                              "n",
+                              "function",
+                              "in_app"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "n",
-                          "addr",
-                          "image",
-                          "offset"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       "maxItems": 128
                     },

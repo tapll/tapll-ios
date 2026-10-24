@@ -46,9 +46,16 @@
               "type": "string",
               "maxLength": 32
             },
+            "sdk_wrapper": {
+              "type": "string",
+              "maxLength": 32
+            },
             "os_name": {
               "type": "string",
-              "const": "iOS"
+              "enum": [
+                "iOS",
+                "Android"
+              ]
             },
             "os_version": {
               "type": "string",

@@ -111,7 +111,7 @@ Reguły, których nie łamiemy:
 
 ## 2. Kontekst urządzenia (raz na paczkę, nie per event)
 
-`DeviceContext`: `app_version`, `app_build`, `sdk_version`, `os_name` (`iOS`), `os_version`, `device_model`, `locale`, `timezone`. Wszystkie obowiązkowe, wszystkie przycięte do limitów z kontraktu. Brak IDFA, brak ATT, brak dokładnej lokalizacji — IP skraca serwer.
+`DeviceContext`: `app_version`, `app_build`, `sdk_version`, `os_name` (`iOS`), `os_version`, `device_model`, `locale`, `timezone`. Wszystkie obowiązkowe, wszystkie przycięte do limitów z kontraktu. Do tego opcjonalne `sdk_wrapper` (`<name>/<version>`, ≤ 32 znaki, od 0.4.0): **nieobecne** (nigdy `null`, nigdy pusty string) dla natywnej appki, ustawiane wyłącznie przez most wrapperów (sekcja 4a). `sdk_version` zostaje wersją **natywnego** SDK. Brak IDFA, brak ATT, brak dokładnej lokalizacji — IP skraca serwer.
 
 - [x] pola wymagane przez kontrakt
 - [x] limity właściwości eventu (`Limits` / `Validation.swift`, ta sama tabela co `packages/contract/src/limits.ts`):
@@ -185,7 +185,7 @@ Reguły, których nie łamiemy:
 ## 4a. Crashe, hangi i non-fatale
 
 Kontrakt: `packages/contract/src/crash-batch.ts` w repo `Union` (kopia schematu w
-`Tests/UnionTests/Fixtures/crash-batch.v1.json`, walidowana testem na każdej kodowanej paczce).
+`Tests/UnionTests/Fixtures/crash-batch.v2.json`, walidowana testem na każdej kodowanej paczce; kopia `event-batch.v1.json` obok niej niesie `device.sdk_wrapper`). Umowa między czterema repozytoriami (iOS, Android, Flutter, React Native): `docs/Engineering/SDK-PLATFORMS.md` w repo `Union`.
 Decyzja i granice: `docs/Engineering/ADR/0004-own-crash-reporting.md` w repo `Union`.
 
 **Jeden fakt, z którego wynika cała reszta: crasha nie wysyła proces, który umarł.** Handler zapisuje
@@ -210,7 +210,9 @@ kto odinstalował, nigdy.
 | Wysyłka | `POST /v1/crash`, **gzip wymagany** (kontener składany ręcznie nad `Compression`, bez zależności). Kasujemy raport wyłącznie po 2xx albo po trwałym odrzuceniu (400/413/422); 5xx i błąd sieci **zostawiają plik** | [x] |
 | Limity paczki | ≤ 8 raportów, ≤ 1 MB po gzipie i ≤ 8 MB po rozpakowaniu (ingest capuje odczyt **rozpakowany**: `content-length` przestaje ograniczać pamięć, a gzip bomb to kilobajt na drucie). Duży raport jedzie sam | [x] |
 | `503` | osobne od 5xx z reszty świata: „nie udało się odłożyć tego raportu, ponów" — plik **zostaje**, nie jest ani skasowany, ani policzony jako trwałe odrzucenie | [x] |
+| Kontrakt v2 (0.4.0) | paczka niesie `contract_version: 2`, a **każdy** raport `platform: "ios"` (musi zgadzać się z `context.os_name`). Ingest nadal przyjmuje v1, ale ten SDK już go nie wysyła. **Rekordy z 0.3.x nadal się wysyłają po aktualizacji appki**: formaty na dysku (`.ucr`, sidecar, `.report.json`) się nie zmieniły i nie są migrowane — `platform` dopisuje się przy uploadzie (`CrashReporter.asV2`), bo raport v1 mógł pochodzić wyłącznie z tego SDK. Kontekst raportu zostaje z chwili crasha (stare `sdk_version`, bez `sdk_wrapper`). Zabetonowane `testAReportFileWrittenBy03xUploadsAsV2WithPlatformIos` i `testABinaryRecordWrittenBy03xUploadsAsV2WithPlatformIos` | [x] |
 | Dwie wersje, nie jedna | `UNION_CRASH_RECORD_VERSION` (format pliku na dysku, czytany przez **następne** uruchomienie, więc może być starszy niż binarka) jest niezależny od `contract_version` paczki `crash-batch` — a ten jest niezależny od `EventBatch`. Trzy liczby, trzy powody do zmiany | [x] |
+| Most wrapperów (0.4.0) | dokładnie dwa wywołania `@_spi(Wrapper)` na `Union` (`@_spi(Wrapper) import Union`), poza publicznym interfejsem i bez obietnicy stabilności poza `SDK-PLATFORMS.md`. `setWrapper(name:version:)` — przed `configure`: ustawia `device.sdk_wrapper = "<name>/<version>"` i dopisuje ` <name>/<version>` do `User-Agent` (eventy **i** crashe); po `configure` albo dla nazwy/wersji pustej, ze spacją lub `/`, albo gdy całość > 32 znaki — **ignorowane z logiem** (przycięta wersja nazywałaby wydanie, którego nie ma). `recordManagedError(type:reason:frames:fatal:thread:)` — błąd Darta/JS ze sparsowanym stosem (`ManagedFrame`: `function`, `module?`, `file?`, `line?`, `column?`, `inApp`; `n` z kolejności tablicy, ≤ 128, ucięcie → `frames_truncated`). `fatal: false` → `nonfatal`, ta sama ścieżka co `recordError`. `fatal: true` → raport `fatal` **zapisany synchronicznie** do magazynu crashy (runtime zaraz zabije proces) i wysłany przy następnym uruchomieniu; wątek `thread` (domyślnie `main`, RN przekazuje `js`). Raport zarządzany **nie ma obrazów binarnych**; pusty `function` → `<anonymous>`, `line`/`column` ≤ 0 → brak, pusty `type` → `Error` (kontrakt wymaga `exception.type` przy ramkach zarządzanych) | [x] |
 | Retencja lokalna | `Options.maxStoredCrashReports` (16), najstarsze wypadają pierwsze — pętla crashy przy starcie bez sieci nie może zapchać dysku | [x] |
 | `optOut()` | kasuje też katalog crashów, nie tylko kolejkę eventów | [x] |
 | Domyślnie | **włączone** (`Options.crashReporting = true`), po obu stronach: serwerowa bramka `crash_reporting_enabled` też jest domyślnie włączona (migracja 0056 w repo `Union`). Wyłączenie po stronie projektu **nie** zatrzymuje uploadu — zamienia go w zapisaną odmowę (`collection_disabled`), więc nic nie ginie po cichu | [x] |
@@ -239,8 +241,9 @@ Reguły, których nie łamiemy:
 | App Store Server Notifications | **jeden styk, i bez niego atrybucji nie ma.** Aplikacja ustawia `Product.PurchaseOption.appAccountToken = Union.installUUID` przy zakupie; Apple odbija ten token na każdej notyfikacji i po nim Union łączy zakup/odnowienie/refund z osobą i sesją. Token nie-UUID **nie linkuje nic i nie zgłasza tego**, a zakupów sprzed jego ustawienia nie da się połączyć wstecz — tokenu nie zapisywaliśmy. SDK daje typ (`Union.installUUID: UUID?`, `nil` przed `configure` i w `strictAnonymous`) i snippet w README; nie importuje StoreKit i nie owija zakupu | [x] |
 | RevenueCat | **nic w hot pathu.** Revenue wchodzi webhookiem RC → `apps/ingest`. Dwa styki po stronie aplikacji: atrybut subskrybenta `union_install_id` = `Union.installId` (pierwsza ścieżka wiązania) i `Union.identify(userId:)` tym samym id co RC `app_user_id` (druga). RC jest właścicielem liczb wyłącznie w projekcie **bez** ASSN | [x] |
 | Survicate / NPS | **prawie nic, ale dwa styki.** Odpowiedzi wchodzą webhookiem Survicate → `apps/ingest`; SDK nie czyta ankiet i nie wysyła odpowiedzi. Styk pierwszy: aplikacja ustawia `SurvicateSdk.shared.setUserTrait(UserTrait(withName: "union_install_id", value: <install_id>))`, żeby odpowiedź trafiła na profil osoby — bez tego Union próbuje dopasować po `user_id`, a w ostatniej kolejności pyta Data Export API. Styk drugi: eventy z sekcji 1a. Treści odpowiedzi Union nie przyjmuje w żadnej formie | [ ] |
+| Flutter / React Native | cienkie wrappery nad tym SDK (`union_analytics`, `@useunion/react-native`): nic nie wysyłają same, tylko przekazują wywołania; deklarują się przez `setWrapper` (sekcja 4a). Aplikacja używa wrappera, nie tego SPI | [x] |
 | Push / notyfikacje | poza MVP | [ ] |
-| Crash reporting | **własne, zaimplementowane** — patrz sekcja 4a. Kontrakt to `crash-batch.v1.json`, nie `EventBatch` | [x] |
+| Crash reporting | **własne, zaimplementowane** — patrz sekcja 4a. Kontrakt to `crash-batch.v2.json` (od 0.4.0), nie `EventBatch` | [x] |
 | Feature flags | poza MVP | — |
 
 Nowa integracja przechodzi ten sam próg: wiersz w tabeli + odpowiedź na pytanie „co dokładnie leci na wire i dlaczego to nie jest PII”.
@@ -248,8 +251,8 @@ Nowa integracja przechodzi ten sam próg: wiersz w tabeli + odpowiedź na pytani
 ## 6. Zanim domkniesz zmianę
 
 - [ ] `swift test` przechodzi (host macOS; części UIKit wykompilowane)
-- [ ] test zgodności ze schematem waliduje każdą zakodowaną paczkę względem `event-batch.v1.json`
-- [ ] fixture schematu odświeżony, jeśli kontrakt w repo `Union` się zmienił (ostatnio: pole `feature` na eventcie)
+- [ ] testy zgodności ze schematem walidują każdą zakodowaną paczkę względem `event-batch.v1.json` (eventy) i `crash-batch.v2.json` (crashe)
+- [ ] fixtures schematów odświeżone, jeśli kontrakt w repo `Union` się zmienił (ostatnio: `device.sdk_wrapper` i crash v2)
 - [ ] `README.md` zgadza się z zachowaniem (README to publiczna obietnica)
 - [ ] wiersz w tej checkliście dopisany/zaktualizowany, stan `[x]/[~]/[ ]` prawdziwy
 - [ ] stringi user-facing i logi po angielsku

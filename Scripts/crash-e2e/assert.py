@@ -11,7 +11,7 @@ def check(ok, message):
         failures.append(message)
 
 
-check(batch.get("contract_version") == 1, "batch is not contract_version 1")
+check(batch.get("contract_version") == 2, "batch is not contract_version 2")
 check(len(batch.get("reports", [])) == 1, "expected exactly one report in the batch")
 report = batch["reports"][0]
 

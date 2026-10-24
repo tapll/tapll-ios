@@ -30,6 +30,7 @@ enum CrashAssembly {
         return CrashReportWire(
             crashId: crashId,
             kind: .fatal,
+            platform: CrashSDKInfo.platform,
             isFatal: true,
             crashedAt: record.crashedAt,
             sessionId: sidecar.sessionId,

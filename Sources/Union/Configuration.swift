@@ -122,6 +122,11 @@ enum SDKInfo {
     /// every batch, so it is the only way to tell a build that *can* send crashes from one that
     /// cannot. Without it, "this build reports no crashes" and "this build has no crash handler" are
     /// the same sentence in the panel.
-    static let version = "0.3.3"
+    static let version = "0.4.0"
     static let contractVersion = 1
+
+    /// `union-ios/<ver>`, plus ` <name>/<ver>` when a wrapper is in front of this SDK.
+    static func userAgent(wrapper: String? = nil) -> String {
+        "union-ios/\(version)" + (wrapper.map { " \($0)" } ?? "")
+    }
 }

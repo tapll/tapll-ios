@@ -4,10 +4,10 @@ Product analytics and crash reporting for iOS apps: live sessions, screens, feat
 
 ## Install
 
-Xcode → File → Add Package Dependencies → `https://github.com/useunion/union-ios`, **Up to Next Major Version** from `0.3.3`. Add the `Union` library to your app target. With a `Package.swift`:
+Xcode → File → Add Package Dependencies → `https://github.com/useunion/union-ios`, **Up to Next Major Version** from `0.4.0`. Add the `Union` library to your app target. With a `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/useunion/union-ios", from: "0.3.3")
+.package(url: "https://github.com/useunion/union-ios", from: "0.4.0")
 ```
 
 **Integrating with a coding agent** (Claude Code, Cursor, Codex)? Copy the setup prompt from the Union panel — **Settings → SDK setup** — which is filled in with your project's write key, privacy mode and connected integrations, and carries the rules the server enforces (feature roles, naming, purchase linking). A generic version is at [useunion.dev/llms.txt](https://useunion.dev/llms.txt).
@@ -143,6 +143,10 @@ before you set it cannot be linked afterwards, so set it before your first relea
 
 Using RevenueCat instead? Set the subscriber attribute `union_install_id` to `Union.installId`, and call
 `Union.identify(userId:)` with the same id you give RevenueCat as `app_user_id`.
+
+## Using Union from Flutter or React Native
+
+Cross-platform apps should use the Union wrappers (`union_analytics` for Flutter, `@useunion/react-native` for React Native) rather than calling this package from Dart or JavaScript. The wrappers sit on top of this SDK and forward to it, so sessions, queueing, retries, privacy modes and crash files stay the native SDK's, and reports from a wrapped app carry the wrapper's name and version. You still add this package to the iOS side through the wrapper's own setup instructions.
 
 ## Privacy modes
 

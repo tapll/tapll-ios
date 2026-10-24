@@ -1,5 +1,5 @@
 import XCTest
-@testable import Union
+@testable @_spi(Wrapper) import Union
 
 final class PipelineTests: XCTestCase {
     func testAttachingCrashContextAdoptsAnAlreadyContinuedSession() async {
@@ -571,4 +571,99 @@ final class PipelineTests: XCTestCase {
         let queued = await p.queuedEvents
         XCTAssertTrue(queued.isEmpty)
     }
+
+    // MARK: - Wrapper bridge
+
+    private func encodedDevice(_ device: DeviceContext) throws -> [String: Any] {
+        let batch = EventBatch(batchId: UUID().uuidString, environment: .production, privacyMode: .productAnalytics,
+                               sentAt: 1_700_000_000_000, device: device, identity: .anonymous,
+                               events: [Event(eventId: UUIDv7.generate(), sessionId: UUIDv7.generate(), name: "workout_started",
+                                              timestamp: 1_700_000_000_000, screen: nil, properties: nil, role: nil)])
+        let data = try WireCoding.encoder.encode(batch)
+        let errors = try MiniSchemaValidator(schema: Fixtures.schemaData()).validate(data)
+        XCTAssertEqual(errors, [], errors.joined(separator: "\n"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(json["device"] as? [String: Any])
+    }
+
+    func testSdkWrapperIsOnTheWireOnlyWhenSet() throws {
+        XCTAssertNil(try encodedDevice(DeviceContextProvider.current())["sdk_wrapper"],
+                     "a native app sends no sdk_wrapper key, not null and not an empty string")
+        let wrapped = try encodedDevice(DeviceContextProvider.current(wrapper: "flutter/1.2.0"))
+        XCTAssertEqual(wrapped["sdk_wrapper"] as? String, "flutter/1.2.0")
+        XCTAssertEqual(wrapped["sdk_version"] as? String, SDKInfo.version, "sdk_version stays the native SDK's")
+    }
+
+    func testWrapperValueIsValidatedAgainstTheContractLimit() {
+        XCTAssertEqual(WrapperInfo.value(name: "react-native", version: "0.5.0"), "react-native/0.5.0")
+        XCTAssertNil(WrapperInfo.value(name: "", version: "1"))
+        XCTAssertNil(WrapperInfo.value(name: "flutter", version: ""))
+        XCTAssertNil(WrapperInfo.value(name: "a/b", version: "1"))
+        XCTAssertNil(WrapperInfo.value(name: "flutter", version: "1 2"))
+        XCTAssertNil(WrapperInfo.value(name: "react-native", version: "1.2.3-beta.100000000"), "over 32 characters")
+    }
+
+    func testUserAgentGainsTheWrapperSuffixOnlyWhenWrapped() {
+        XCTAssertEqual(SDKInfo.userAgent(), "union-ios/\(SDKInfo.version)")
+        XCTAssertEqual(SDKInfo.userAgent(wrapper: "flutter/1.2.0"), "union-ios/\(SDKInfo.version) flutter/1.2.0")
+    }
+
+    func testBothTransportsSendTheUserAgentTheyWereGiven() async throws {
+        let ua = SDKInfo.userAgent(wrapper: "flutter/1.2.0")
+        let url = URL(string: "https://example.invalid/v1/batch")!
+        for makeSend in [
+            { (session: URLSession) in { try await URLSessionTransport(endpoint: url, session: session, userAgent: ua).send(Data("{}".utf8), writeKey: "k") } },
+            { (session: URLSession) in { try await URLSessionCrashTransport(endpoint: url, session: session, userAgent: ua).send(Data("{}".utf8), writeKey: "k") } },
+        ] {
+            HeaderCapturingProtocol.captured = nil
+            let cfg = URLSessionConfiguration.ephemeral
+            cfg.protocolClasses = [HeaderCapturingProtocol.self]
+            _ = try await makeSend(URLSession(configuration: cfg))()
+            XCTAssertEqual(HeaderCapturingProtocol.captured, ua)
+        }
+    }
+
+    func testSetWrapperBeforeConfigureIsAppliedAndAfterConfigureIsIgnoredWithALog() {
+        Union.resetForTesting()
+        defer { Union.resetForTesting() }
+        Union.setWrapper(name: "flutter", version: "1.2.0")
+        XCTAssertEqual(Union.registeredWrapper, "flutter/1.2.0")
+
+        let logs = UncheckedBox<[String]>([])
+        let lock = NSLock()
+        var options = Options()
+        options.crashReporting = false
+        options.endpoint = URL(string: "http://127.0.0.1:9/v1/batch")!
+        options.logLevel = .debug
+        options.logHandler = { _, message in lock.withLock { logs.value.append(message) } }
+        Union.configure(writeKey: "av_test", privacyMode: .productAnalytics, options: options)
+        XCTAssertTrue(lock.withLock { logs.value }.contains { $0.contains("wrapper=flutter/1.2.0") },
+                      "the configured line names the wrapper that was in force")
+
+        Union.setWrapper(name: "react-native", version: "9.9.9")
+        XCTAssertEqual(Union.registeredWrapper, "flutter/1.2.0", "after configure the call changes nothing")
+        XCTAssertTrue(lock.withLock { logs.value }.contains { $0.contains("setWrapper") && $0.contains("before configure") })
+    }
+
+    func testAnInvalidWrapperIsIgnored() {
+        Union.resetForTesting()
+        defer { Union.resetForTesting() }
+        Union.setWrapper(name: "bad name", version: "1")
+        XCTAssertNil(Union.registeredWrapper)
+    }
+}
+
+/// Answers every request with a 202 and remembers the `User-Agent` it carried.
+final class HeaderCapturingProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var captured: String?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        HeaderCapturingProtocol.captured = request.value(forHTTPHeaderField: "User-Agent")
+        let response = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

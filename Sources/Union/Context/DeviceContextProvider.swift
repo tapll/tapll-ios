@@ -4,13 +4,14 @@ import UIKit
 #endif
 
 enum DeviceContextProvider {
-    static func current() -> DeviceContext {
+    static func current(wrapper: String? = nil) -> DeviceContext {
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         return DeviceContext(
             appVersion: info["CFBundleShortVersionString"] as? String ?? "0",
             appBuild: info["CFBundleVersion"] as? String ?? "0",
             sdkVersion: SDKInfo.version,
+            sdkWrapper: wrapper,
             osVersion: "\(os.majorVersion).\(os.minorVersion)" + (os.patchVersion > 0 ? ".\(os.patchVersion)" : ""),
             deviceModel: hardwareModel(),
             locale: String(Locale.current.identifier.prefix(16)),
