@@ -1,26 +1,44 @@
-# Union iOS SDK
+# Tapll iOS SDK
 
 Product analytics and crash reporting for iOS apps: live sessions, screens, features, releases, crashes. iOS 16+, Swift Package, no third-party dependencies, no IDFA.
 
 ## Install
 
-Xcode → File → Add Package Dependencies → `https://github.com/useunion/union-ios`, **Up to Next Major Version** from `0.4.0`. Add the `Union` library to your app target. With a `Package.swift`:
+Xcode → File → Add Package Dependencies → `https://github.com/tapll/tapll-ios`, **Up to Next Major Version** from `0.5.0`. Add the `Tapll` library to your app target. With a `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/useunion/union-ios", from: "0.4.0")
+.package(url: "https://github.com/tapll/tapll-ios", from: "0.5.0")
 ```
 
-**Integrating with a coding agent** (Claude Code, Cursor, Codex)? Copy the setup prompt from the Union panel — **Settings → SDK setup** — which is filled in with your project's write key, privacy mode and connected integrations, and carries the rules the server enforces (feature roles, naming, purchase linking). A generic version is at [useunion.dev/llms.txt](https://useunion.dev/llms.txt).
+**Integrating with a coding agent** (Claude Code, Cursor, Codex)? Copy the setup prompt from the Tapll panel — **Settings → SDK setup** — which is filled in with your project's write key, privacy mode and connected integrations, and carries the rules the server enforces (feature roles, naming, purchase linking). A generic version is at [tapll.com/llms.txt](https://tapll.com/llms.txt).
+
+## Upgrading from Union (0.4.x)
+
+0.5.0 renames the SDK from Union to Tapll. The package, library and module are now `Tapll` (`import Tapll`;
+`import Union` no longer compiles), the repository is `github.com/tapll/tapll-ios`, and the default ingest
+endpoint is `https://in.tapll.com`. `Union` stays as a deprecated `typealias` of `Tapll` for a release or two,
+so code that only names the type keeps building with a warning.
+
+```swift
+// before: import Union … Union.configure(…)
+import Tapll
+Tapll.configure(writeKey: "av_…", privacyMode: .productAnalytics)
+```
+
+On first launch the SDK moves what 0.4.x persisted to the new names (install id and user id in the Keychain,
+defaults, the offline queue and unsent crash reports), so upgraded users stay the same person and nothing queued
+is lost. If you set the RevenueCat or Survicate attribute, rename it to `tapll_install_id`; the server still
+accepts `union_install_id` from apps in the wild.
 
 ## 10-minute setup
 
 ```swift
-import Union
+import Tapll
 
 @main
 struct MyApp: App {
     init() {
-        Union.configure(writeKey: "av_…", privacyMode: .productAnalytics)
+        Tapll.configure(writeKey: "av_…", privacyMode: .productAnalytics)
     }
     var body: some Scene { WindowGroup { RootView().trackScreen("Root") } }
 }
@@ -29,13 +47,13 @@ struct MyApp: App {
 That already sends `$first_open`, `$app_install` / `$app_update`, `$session_start` / `$session_end`, `$foreground` / `$background`, and device context (app version + build, iOS version, device model, locale, timezone). The panel's **Live** view shows the first session within seconds.
 
 ```swift
-Union.screen("WorkoutDetail")                                        // or .trackScreen("WorkoutDetail") in SwiftUI
-Union.track("workout_started", properties: ["plan": "strength", "minutes": 30], role: .start)
-Union.track("workout_finished", role: .success)
-Union.identify(userId: "user_123")                                   // after login (product_analytics only)
-Union.identify(userId: "user_123", traits: ["email": "ada@example.com", "name": "Ada"])  // named in the panel
-Union.reset()                                                        // on logout
-Union.handleDeepLink(url)                                            // from onOpenURL / scene delegate
+Tapll.screen("WorkoutDetail")                                        // or .trackScreen("WorkoutDetail") in SwiftUI
+Tapll.track("workout_started", properties: ["plan": "strength", "minutes": 30], role: .start)
+Tapll.track("workout_finished", role: .success)
+Tapll.identify(userId: "user_123")                                   // after login (product_analytics only)
+Tapll.identify(userId: "user_123", traits: ["email": "ada@example.com", "name": "Ada"])  // named in the panel
+Tapll.reset()                                                        // on logout
+Tapll.handleDeepLink(url)                                            // from onOpenURL / scene delegate
 ```
 
 Traits describe the person, so the panel can head a profile with a name instead of an id. Up to 8 keys,
@@ -50,7 +68,7 @@ Event names: lowercase `snake_case`, max 64 chars. Properties: up to 32 keys; st
 Declare a feature where its events are sent, and the funnel builds itself:
 
 ```swift
-let checkout = Union.feature("checkout")
+let checkout = Tapll.feature("checkout")
 checkout.screen("Checkout")                                   // discovery — saw it exists
 checkout.start("checkout_started")                            // start — tried; the funnel's denominator
 checkout.use("shipping_selected")                             // use — working inside it, not a step
@@ -74,7 +92,7 @@ feature (or adds the new events to one the panel already has) — no inbox step 
 it: rename it, set an owner, add events. Edits made in the panel are kept on later syncs. Development
 builds only pre-fill the panel's editor, so experimenting with names does not create features. A typo
 in the key creates a second feature; it shows up as "Declared in code" with its key and is fixed by
-archiving. Keys follow the event-name rules (`snake_case`, max 64 chars). `Union.track(_:feature:role:)`
+archiving. Keys follow the event-name rules (`snake_case`, max 64 chars). `Tapll.track(_:feature:role:)`
 is the same thing without the handle.
 
 ## Crashes, hangs and non-fatals
@@ -83,10 +101,10 @@ On by default. `configure` installs the handlers — signals, mach exceptions, `
 watchdog that notices when the main thread stops answering. Nothing else is needed:
 
 ```swift
-Union.recordError("PaymentFailed", reason: "card_declined")   // a caught error, counted separately
-Union.recordError(error)                                       // same, from a Swift Error
-Union.setCrashKey("plan", "pro")                               // ≤ 8 labels on every later report
-Union.leaveBreadcrumb("retrying_upload")                       // a name in the trail — never a value
+Tapll.recordError("PaymentFailed", reason: "card_declined")   // a caught error, counted separately
+Tapll.recordError(error)                                       // same, from a Swift Error
+Tapll.setCrashKey("plan", "pro")                               // ≤ 8 labels on every later report
+Tapll.leaveBreadcrumb("retrying_upload")                       // a name in the trail — never a value
 ```
 
 **A crash is not sent by the process that died.** The handler writes it to disk and the SDK uploads it
@@ -95,7 +113,7 @@ never. That is why the panel's crash-free rate is a ceiling for a window that is
 why "no crashes today" is not the same claim as "a stable day".
 
 There are two switches and both are on by default: `Options.crashReporting` here, and the project's
-own **crash reporting** setting in Union. Turning the project's off does not stop the upload — it
+own **crash reporting** setting in Tapll. Turning the project's off does not stop the upload — it
 turns it into a recorded refusal, so nothing is stored and nothing is silently lost either way.
 
 ```swift
@@ -123,30 +141,30 @@ o.automaticScreenTracking = true   // UIKit: swizzles viewDidAppear (container/s
 o.flushAt = 20; o.flushInterval = 10
 o.logLevel = .debug
 o.logHandler = { level, msg in print("[AV]", level, msg) }
-Union.configure(writeKey: "av_…", privacyMode: .productAnalytics, options: o)
+Tapll.configure(writeKey: "av_…", privacyMode: .productAnalytics, options: o)
 ```
 
 One write key serves every build: the SDK detects the environment itself (DEBUG → development, TestFlight → testflight, otherwise production) and sends it with each batch; override with `Options.environment`. The first answer comes from the receipt at launch; StoreKit's signed `AppTransaction.environment` replaces it as soon as it arrives, and every batch built after that carries it. Keys created before environments were unbound are still bound to one — with such a key, a mismatch is reported once in the log and the batch is dropped.
 
 ## Linking purchases
 
-Union joins purchases, renewals and refunds to a person through Apple's `appAccountToken`, which the App Store
+Tapll joins purchases, renewals and refunds to a person through Apple's `appAccountToken`, which the App Store
 echoes on every server notification. Set it from the install id when you start a purchase:
 
 ```swift
-try await product.purchase(options: Union.installUUID.map { [.appAccountToken($0)] } ?? [])
+try await product.purchase(options: Tapll.installUUID.map { [.appAccountToken($0)] } ?? [])
 ```
 
-`Union.installUUID` is the install id as a `UUID` — `nil` before `configure(…)` and in `strictAnonymous`. The token
+`Tapll.installUUID` is the install id as a `UUID` — `nil` before `configure(…)` and in `strictAnonymous`. The token
 has to be a UUID: the App Store accepts any other value without complaining and it links nothing. Purchases made
 before you set it cannot be linked afterwards, so set it before your first release that sells anything.
 
-Using RevenueCat instead? Set the subscriber attribute `union_install_id` to `Union.installId`, and call
-`Union.identify(userId:)` with the same id you give RevenueCat as `app_user_id`.
+Using RevenueCat instead? Set the subscriber attribute `tapll_install_id` to `Tapll.installId`, and call
+`Tapll.identify(userId:)` with the same id you give RevenueCat as `app_user_id`.
 
-## Using Union from Flutter or React Native
+## Using Tapll from Flutter or React Native
 
-Cross-platform apps should use the Union wrappers (`union_analytics` for Flutter, `@useunion/react-native` for React Native) rather than calling this package from Dart or JavaScript. The wrappers sit on top of this SDK and forward to it, so sessions, queueing, retries, privacy modes and crash files stay the native SDK's, and reports from a wrapped app carry the wrapper's name and version. You still add this package to the iOS side through the wrapper's own setup instructions.
+Cross-platform apps should use the Tapll wrappers (`tapll_analytics` for Flutter, `@tapll/react-native` for React Native) rather than calling this package from Dart or JavaScript. The wrappers sit on top of this SDK and forward to it, so sessions, queueing, retries, privacy modes and crash files stay the native SDK's, and reports from a wrapped app carry the wrapper's name and version. You still add this package to the iOS side through the wrapper's own setup instructions.
 
 ## Privacy modes
 
@@ -158,11 +176,11 @@ Cross-platform apps should use the Union wrappers (`union_analytics` for Flutter
 
 Neither mode uses IDFA or requires ATT. IP addresses are truncated server-side before storage; location is coarse (country/region). Don't describe `productAnalytics` data as "fully anonymous".
 
-`Union.optOut()` stops collection and wipes the local queue, identity and session; `optIn()` re-enables. `requestDataDeletion()` is currently `optOut()` — server-side deletion is requested from the panel.
+`Tapll.optOut()` stops collection and wipes the local queue, identity and session; `optIn()` re-enables. `requestDataDeletion()` is currently `optOut()` — server-side deletion is requested from the panel.
 
 ## Delivery guarantees
 
-Events are persisted to an NDJSON queue in Application Support (excluded from backup) and sent in batches (≤100 events / ≤256 KB) every 10 s, at 20 queued events, when the app goes to background, and on `flush()`. `await Union.flush()` returns once everything queued before the call has been sent (or the server or network refused it) — a call made during an automatic flush waits for it rather than returning early. Retries keep the same `event_id`, so the server deduplicates. Server responses: partial `400` drops only the rejected events; `401` stops the SDK for this launch; `403` / `429` pause (respecting `Retry-After`); network errors back off exponentially (max 5 min). Sessions end after 30 minutes of inactivity — the same rule the server applies.
+Events are persisted to an NDJSON queue in Application Support (excluded from backup) and sent in batches (≤100 events / ≤256 KB) every 10 s, at 20 queued events, when the app goes to background, and on `flush()`. `await Tapll.flush()` returns once everything queued before the call has been sent (or the server or network refused it) — a call made during an automatic flush waits for it rather than returning early. Retries keep the same `event_id`, so the server deduplicates. Server responses: partial `400` drops only the rejected events; `401` stops the SDK for this launch; `403` / `429` pause (respecting `Retry-After`); network errors back off exponentially (max 5 min). Sessions end after 30 minutes of inactivity — the same rule the server applies.
 
 ## Privacy manifest
 
@@ -174,4 +192,4 @@ Events are persisted to an NDJSON queue in Application Support (excluded from ba
 swift test            # runs on macOS host (UIKit parts are compiled out)
 ```
 
-`Tests/UnionTests/Fixtures/event-batch.v1.json` is copied from the platform repo (`packages/contract/schema`); the schema-conformance test validates every encoded batch against it.
+`Tests/TapllTests/Fixtures/event-batch.v1.json` is copied from the platform repo (`packages/contract/schema`); the schema-conformance test validates every encoded batch against it.

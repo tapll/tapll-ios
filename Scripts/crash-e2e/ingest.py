@@ -19,7 +19,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = gzip.decompress(raw)
         with open(OUT, "w") as f:
             json.dump(json.loads(body), f, indent=2)
-        print(f"ingest: {self.path} key={self.headers.get('x-union-key')} "
+        print(f"ingest: {self.path} key={self.headers.get('x-tapll-key')} "
               f"{len(raw)}B gzip -> {len(body)}B json -> {STATUS}", flush=True)
         payload = b"{}"
         self.send_response(STATUS)

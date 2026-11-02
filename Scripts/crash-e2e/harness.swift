@@ -2,19 +2,19 @@
  * The one thing `swift test` cannot do: let the process die.
  *
  * A test runner that segfaults reports nothing, so `CrashTests` exercises the handler through
- * `union_crash_capture_live` — the same walk, minus dying. That leaves the seam this harness covers:
+ * `tapll_crash_capture_live` — the same walk, minus dying. That leaves the seam this harness covers:
  * a process that really takes a signal, a handler that really writes from it, and a *second* process
  * that reads the file off disk and uploads it. See `Scripts/crash-e2e.sh`, which drives both modes.
  *
- * Not a package target on purpose: it links the debug build of `Union` with `@testable`, and it exists
+ * Not a package target on purpose: it links the debug build of `Tapll` with `@testable`, and it exists
  * to be run by hand before a release rather than on every `swift test`.
  *
  *   harness crash  <store-dir> <endpoint>   installs, drops a breadcrumb, then dereferences null
  *   harness report <store-dir> <endpoint>   the next launch: sends whatever the dead one left
  */
 import Foundation
-import UnionCrashCore
-@testable import Union
+import TapllCrashCore
+@testable import Tapll
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {

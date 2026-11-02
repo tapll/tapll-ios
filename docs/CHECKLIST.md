@@ -1,10 +1,16 @@
-# union-ios — checklista implementacji
+# tapll-ios — checklista implementacji
 
 Jedno miejsce, w którym jest napisane **co SDK loguje, kiedy i w jakim kształcie**. Zanim dodasz event, integrację albo pole kontekstu: znajdź je tutaj. Jeśli nie ma — najpierw dopisz wiersz, potem implementuj.
 
-Źródło prawdy dla kształtu paczki: `packages/contract/src/event-batch.ts` w repo `Union` (JSON Schema: `pnpm --filter @union/contract schema:json`, kopia w `Tests/UnionTests/Fixtures/event-batch.v1.json`). Ten plik nie definiuje kontraktu — opisuje, co z niego mamy wyemitować.
+Źródło prawdy dla kształtu paczki: `packages/contract/src/event-batch.ts` w repo `Tapll` (JSON Schema: `pnpm --filter @tapll/contract schema:json`, kopia w `Tests/TapllTests/Fixtures/event-batch.v1.json`). Ten plik nie definiuje kontraktu — opisuje, co z niego mamy wyemitować.
 
 Stan: `[x]` zaimplementowane i pokryte testem, `[~]` zaimplementowane bez testu, `[ ]` do zrobienia.
+
+## 0. Zmiana nazwy Union → Tapll (0.5.0)
+
+- [x] pakiet/moduł `Tapll`, `TapllCrashCore`; `typealias Union = Tapll` (deprecated) na jeden-dwa minory
+- [x] endpoint `https://in.tapll.com/v1/batch`, nagłówek `x-tapll-key` (serwer przyjmuje też `x-union-key`)
+- [x] jednorazowa migracja przy `configure` (Keychain `app.union.sdk` → `app.tapll.sdk`, suite `UserDefaults` tak samo, `Application Support/Union` → `Tapll` z kolejką i raportami crashy); stare obecne + nowe obecne → wygrywa nowe, stare usuwane. Testy: `LegacyMigrationTests`
 
 ## 1. Eventy automatyczne (prefiks `$`, nazwy zarezerwowane)
 
@@ -19,8 +25,8 @@ Nazwa musi pochodzić z `AutoEventName`. Klient nigdy nie może wysłać `$…` 
 | `$session_end` | zamknięcie poprzedniej sesji; `timestamp` = `lastActivityAt`, nie „teraz” | — | [x] |
 | `$foreground` | powrót do aktywności w tej samej sesji | — | [x] |
 | `$background` | wejście w tło (poprzedzone flushem) | — | [x] |
-| `$screen_view` | `Union.screen(_:)` / `.trackScreen` / swizzling `viewDidAppear` | `screen` = nazwa; opcjonalne właściwości wywołania | [x] |
-| `$deep_link` | `Union.handleDeepLink(url)` | `url_scheme`, `host`, `path` — **nigdy** query ani fragment (PII) | [x] |
+| `$screen_view` | `Tapll.screen(_:)` / `.trackScreen` / swizzling `viewDidAppear` | `screen` = nazwa; opcjonalne właściwości wywołania | [x] |
+| `$deep_link` | `Tapll.handleDeepLink(url)` | `url_scheme`, `host`, `path` — **nigdy** query ani fragment (PII) | [x] |
 
 Reguły, których nie łamiemy:
 - Kolejność w paczce jest chronologiczna, z jednym udokumentowanym wyjątkiem: `$session_end` starej sesji zawsze
@@ -30,12 +36,12 @@ Reguły, których nie łamiemy:
 - Każdy event ma `session_id` żywej sesji; eventy domykające dostają `session_id` sesji, którą domykają.
 - `event_id` i `session_id` to UUIDv7 z SDK; retry zachowuje `event_id` (serwer deduplikuje).
 - Timeout sesji (30 min) liczy SDK **i** serwer — obie strony muszą dawać ten sam wynik.
-- `$…` nie ma wariantu „custom” — nowy event automatyczny wymaga wpisu w `AutoEventName` w repo `Union` **przed** implementacją tutaj.
+- `$…` nie ma wariantu „custom” — nowy event automatyczny wymaga wpisu w `AutoEventName` w repo `Tapll` **przed** implementacją tutaj.
 
 ## 1a. Eventy klienta, których nazwę czyta serwer
 
 Trzecia kategoria, obok `$auto` i dowolnych eventów aplikacji: nazwa jest **dowolna z punktu widzenia
-kontraktu** (pasuje do `^[a-z][a-z0-9_]*$`), ale rollup w repo `Union` szuka jej dosłownie. Literówka
+kontraktu** (pasuje do `^[a-z][a-z0-9_]*$`), ale rollup w repo `Tapll` szuka jej dosłownie. Literówka
 albo własny synonim nie jest błędem walidacji — event przechodzi, a metryka po drugiej stronie po
 prostu nigdy nie rośnie. Cicha awaria, więc nazwy są tutaj, nie w cudzej głowie.
 
@@ -44,27 +50,27 @@ prostu nigdy nie rośnie. Cicha awaria, więc nazwy są tutaj, nie w cudzej gło
 | `survey_displayed` | aplikacja, z callbacku `surveyDisplayed` Survicate | `survey_id` (string) | mianownik response rate w widoku NPS; panel mówi wtedy „unknown", nigdy nie zgaduje | [ ] |
 | `survey_closed` | aplikacja, z callbacku `surveyClosed` Survicate | `survey_id` (string) | rozróżnienie „zamknął bez odpowiedzi" od „nie zobaczył" | [ ] |
 
-Dlaczego to nie są eventy `$auto`: emituje je aplikacja z callbacku **cudzego** SDK, nie Union SDK
-z własnego cyklu życia. Union nie linkuje Survicate i nie ma z czego swizzlować.
+Dlaczego to nie są eventy `$auto`: emituje je aplikacja z callbacku **cudzego** SDK, nie Tapll SDK
+z własnego cyklu życia. Tapll nie linkuje Survicate i nie ma z czego swizzlować.
 
-- [ ] rozważyć `Union.trackSurveyDisplayed(surveyId:)` / `…Closed` — cienkie wrappery na `track`,
+- [ ] rozważyć `Tapll.trackSurveyDisplayed(surveyId:)` / `…Closed` — cienkie wrappery na `track`,
       których jedyna wartość to zabetonowanie nazwy i klucza właściwości w kompilatorze zamiast
       w tym akapicie. Do zrobienia, gdy pojawi się druga aplikacja emitująca te eventy ręcznie.
 
 ## 1b. Deklaracja feature'a i roli
 
 Trzecia rzecz, jaką event może nieść obok nazwy i właściwości: **do którego feature'a należy i w jakiej
-roli**. To nie podpowiedź dla panelu — to definicja. Serwer (repo `Union`, `syncDeclaredFeatures`) tworzy
+roli**. To nie podpowiedź dla panelu — to definicja. Serwer (repo `Tapll`, `syncDeclaredFeatures`) tworzy
 z niej feature albo dorzuca brakujące role do istniejącego, bez skrzynki sugestii. Dlatego pomyłka tutaj
 nie jest błędem walidacji, tylko drugim feature'em w panelu.
 
 | Element | Co robi SDK | Stan |
 |---|---|---|
-| `feature` na eventcie | opcjonalny klucz (`^[a-z][a-z0-9_]*$`, ≤ 64 — ten sam alfabet co nazwa eventu, `Limits.featureKeyPattern`), przez `Union.track(_:feature:role:)` | [x] |
+| `feature` na eventcie | opcjonalny klucz (`^[a-z][a-z0-9_]*$`, ≤ 64 — ten sam alfabet co nazwa eventu, `Limits.featureKeyPattern`), przez `Tapll.track(_:feature:role:)` | [x] |
 | `role` na eventcie | jak dotąd (`discovery/start/use/success/failure`); bez `feature` tylko wypełnia edytor w panelu | [x] |
-| `feature` na `$screen_view` | `Union.screen(_:feature:)` — jedyny event `$…`, który może nieść klucz; SDK dopisuje `role: .discovery`, bo widok ekranu jest pierwszym krokiem leja. Inne `$…` z kluczem serwer odrzuca | [x] |
-| Uchwyt `Union.feature(_:)` | `Feature` — klucz pisany raz, rola wynika z metody (`.screen/.discovery/.start/.use/.success/.failure`). Cienka nakładka na `track`/`screen`; klucz walidowany przy tworzeniu, żeby zły był zalogowany raz, nie per event | [x] |
-| `screen` na dowolnym eventcie | `Union.track(_:screen:)` — opcjonalna nazwa ekranu (≤ 128) obok nazwy eventu; nie emituje `$screen_view` i nie liczy się do `screen_count`, tylko mówi **gdzie** event się stał | [x] |
+| `feature` na `$screen_view` | `Tapll.screen(_:feature:)` — jedyny event `$…`, który może nieść klucz; SDK dopisuje `role: .discovery`, bo widok ekranu jest pierwszym krokiem leja. Inne `$…` z kluczem serwer odrzuca | [x] |
+| Uchwyt `Tapll.feature(_:)` | `Feature` — klucz pisany raz, rola wynika z metody (`.screen/.discovery/.start/.use/.success/.failure`). Cienka nakładka na `track`/`screen`; klucz walidowany przy tworzeniu, żeby zły był zalogowany raz, nie per event | [x] |
+| `screen` na dowolnym eventcie | `Tapll.track(_:screen:)` — opcjonalna nazwa ekranu (≤ 128) obok nazwy eventu; nie emituje `$screen_view` i nie liczy się do `screen_count`, tylko mówi **gdzie** event się stał | [x] |
 | Zły klucz | **porzuca cały event**, nigdy nie wysyła go bez `feature` — event obdarty z feature'a, dla którego został napisany, czyta się po drugiej stronie jako „nie należy do żadnego" | [x] |
 
 Reguły, których nie łamiemy:
@@ -136,29 +142,29 @@ Reguły, których nie łamiemy:
   Zabetonowane `testStartingPausedKeepsTheStoredInstallIdWhenConsentIsRestored` (0.3.3)
 - [x] `PrivacyInfo.xcprivacy` w paczce (Product Interaction, Device ID, User ID, Other Diagnostic Data; `CA92.1`)
 - [ ] `requestDataDeletion()` to dziś alias `optOut()` — zamienić na realne żądanie, gdy API je wystawi
-- [x] `Union.installId` wystawia install id do odczytu (`nil` przed `configure` i w `strictAnonymous`),
+- [x] `Tapll.installId` wystawia install id do odczytu (`nil` przed `configure` i w `strictAnonymous`),
   żeby aplikacja mogła podać go Survicate jako trait — styk z sekcji 5 jest wykonalny po stronie SDK;
   to aplikacja musi go wywołać.
-- Odpowiedzi z ankiet: do Union jedzie **wyłącznie** fakt zdarzenia i `survey_id`. Nigdy treść
-  odpowiedzi, komentarz, score ani kategoria — score i kategorię Union bierze z webhooka Survicate,
-  a treści nie bierze wcale. `Union.track("survey_answered", ["comment": …])` byłoby złamaniem tej
+- Odpowiedzi z ankiet: do Tapll jedzie **wyłącznie** fakt zdarzenia i `survey_id`. Nigdy treść
+  odpowiedzi, komentarz, score ani kategoria — score i kategorię Tapll bierze z webhooka Survicate,
+  a treści nie bierze wcale. `Tapll.track("survey_answered", ["comment": …])` byłoby złamaniem tej
   zasady po stronie aplikacji: SDK tego nie zablokuje, więc pilnuje tego ten wiersz i review.
 - Nie logujemy sami z siebie: query stringów, treści wpisywanych przez użytkownika, tokenów, współrzędnych,
-  ID reklamowych. E-mail czy nazwisko trafiają do Union **wyłącznie** wtedy, gdy aplikacja jawnie poda je
+  ID reklamowych. E-mail czy nazwisko trafiają do Tapll **wyłącznie** wtedy, gdy aplikacja jawnie poda je
   jako trait w `identify` — nigdy z autocapture.
 
 ## 4. Dostarczanie
 
-- [x] host: `https://in.useunion.dev/v1/batch` — ten sam, co `custom_domain` w `apps/ingest/wrangler.jsonc` w repo
-  `Union`. Ten adres jedzie w każdej wydanej binarce: zmiana odcina od ingestu wszystkie apki już w App Store,
+- [x] host: `https://in.tapll.com/v1/batch` — ten sam, co `custom_domain` w `apps/ingest/wrangler.jsonc` w repo
+  `Tapll`. Ten adres jedzie w każdej wydanej binarce: zmiana odcina od ingestu wszystkie apki już w App Store,
   a SDK nie krzyczy głośniej niż `warning`, więc awaria jest cicha. Zmieniasz host tylko razem z ingestem.
-- [x] nagłówek klucza to `x-union-key` (nie `Authorization: Bearer`)
+- [x] nagłówek klucza to `x-tapll-key` (nie `Authorization: Bearer`)
 - [x] kolejka NDJSON w Application Support, wykluczona z backupu, stabilna ścieżka między launchami
 - [x] paczki ≤ 100 eventów / ≤ 256 KB
 - [x] flush: co 10 s, przy 20 eventach, na wejściu w tło, na `flush()`
 - [x] `flush()` wywołane w trakcie innego flusha **czeka na niego i dosyła resztę**, nigdy nie wraca z
   własnymi eventami w kolejce. Wcześniej `guard !flushing` zwracał od razu, a przez reentrancję aktora
-  (drain zawieszony w `transport.send`) `await Union.flush()` wracał, zanim eventy sprzed wywołania
+  (drain zawieszony w `transport.send`) `await Tapll.flush()` wracał, zanim eventy sprzed wywołania
   wyszły. Zabetonowane `testFlushDuringAnInFlightFlushWaitsAndSendsEverything` (0.3.2)
 - [x] anulowanie timera flusha **nie odpala** flusha: `try? await Task.sleep` połykał `CancellationError`
   i spadał do `flush()`, więc każde `timer.cancel()` (wyłączenie zbierania, tło, drugie `configure`)
@@ -174,19 +180,19 @@ Reguły, których nie łamiemy:
   `privacy_violation` (`packages/contract/src/errors.ts`). Pod jednym `403` stoją dwie różne prawdy —
   wyłączony projekt i throttle — i tylko jedna z nich ma sens do ponowienia.
 - [ ] niezgodność środowiska klucza wraca jako `invalid_batch` bez `details` — rozpoznajemy po `message`; usunąć, gdy ingest doda `path: "environment"`
-- [ ] lokalny ingest **nie ma portu** pod `wrangler dev` z wieloma configami: repo `Union` wystawia proxy
+- [ ] lokalny ingest **nie ma portu** pod `wrangler dev` z wieloma configami: repo `Tapll` wystawia proxy
   (`DEV_INGEST_PROXY=1`, `POST http://localhost:8789/v1/dev/ingest`). Dopisać jako udokumentowane
-  `Options.endpoint` do testów na urządzeniu, żeby ścieżka „SDK przeciwko lokalnemu Unionowi" nie była folklorem.
+  `Options.endpoint` do testów na urządzeniu, żeby ścieżka „SDK przeciwko lokalnemu Tapllowi" nie była folklorem.
 - SDK nigdy nie rzuca i nie ubija hosta: nieprawidłowy event jest logowany i porzucany.
 - `POST /v1/server` (klucze `sk_…`) **nie jest ścieżką SDK** i nie wolno jej tu dodać: to wejście dla backendu
-  klienta, z własnym kontraktem, innym zaufaniem i bez `SessionDO`. Jedyny styk to `Union.installId` podany
+  klienta, z własnym kontraktem, innym zaufaniem i bez `SessionDO`. Jedyny styk to `Tapll.installId` podany
   aplikacji do przekazania na własny serwer.
 
 ## 4a. Crashe, hangi i non-fatale
 
-Kontrakt: `packages/contract/src/crash-batch.ts` w repo `Union` (kopia schematu w
-`Tests/UnionTests/Fixtures/crash-batch.v2.json`, walidowana testem na każdej kodowanej paczce; kopia `event-batch.v1.json` obok niej niesie `device.sdk_wrapper`). Umowa między czterema repozytoriami (iOS, Android, Flutter, React Native): `docs/Engineering/SDK-PLATFORMS.md` w repo `Union`.
-Decyzja i granice: `docs/Engineering/ADR/0004-own-crash-reporting.md` w repo `Union`.
+Kontrakt: `packages/contract/src/crash-batch.ts` w repo `Tapll` (kopia schematu w
+`Tests/TapllTests/Fixtures/crash-batch.v2.json`, walidowana testem na każdej kodowanej paczce; kopia `event-batch.v1.json` obok niej niesie `device.sdk_wrapper`). Umowa między czterema repozytoriami (iOS, Android, Flutter, React Native): `docs/Engineering/SDK-PLATFORMS.md` w repo `Tapll`.
+Decyzja i granice: `docs/Engineering/ADR/0004-own-crash-reporting.md` w repo `Tapll`.
 
 **Jeden fakt, z którego wynika cała reszta: crasha nie wysyła proces, który umarł.** Handler zapisuje
 rekord na dysk, a SDK wysyła go przy **następnym uruchomieniu** — po minutach, po dniach, a dla kogoś,
@@ -194,13 +200,13 @@ kto odinstalował, nigdy.
 
 | Element | Co robi SDK | Stan |
 |---|---|---|
-| Handler sygnałów | `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGABRT`, `SIGTRAP`, `SIGSYS` + `sigaltstack` (bez niego przepełnienie stosu nie ma gdzie się obsłużyć). Kod handlera jest w **C** (`Sources/UnionCrashCore`), bo musi być async-signal-safe: bez alokacji, bez Obj-C, bez locków, bez runtime'u Swifta. Po zapisie przywraca poprzedni handler i re-raise'uje — Apple też musi dostać swój crash log | [x] |
+| Handler sygnałów | `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGABRT`, `SIGTRAP`, `SIGSYS` + `sigaltstack` (bez niego przepełnienie stosu nie ma gdzie się obsłużyć). Kod handlera jest w **C** (`Sources/TapllCrashCore`), bo musi być async-signal-safe: bez alokacji, bez Obj-C, bez locków, bez runtime'u Swifta. Po zapisie przywraca poprzedni handler i re-raise'uje — Apple też musi dostać swój crash log | [x] |
 | Mach exception port | `EXC_BAD_ACCESS`, `EXC_BAD_INSTRUCTION`, `EXC_ARITHMETIC`, `EXC_BREAKPOINT` na własnym wątku; odpowiada `KERN_FAILURE`, czyli oddaje obsługę dalej. Pierwszy zapis wygrywa (mach i sygnał opisują tę samą śmierć) | [x] |
 | `NSException` | `NSSetUncaughtExceptionHandler` — jedyne miejsce, gdzie widać **co** zostało rzucone; przez `SIGABRT` wszystkie takie crashe zlałyby się w jedno bezsensowne issue. Poprzedni handler jest wołany, żeby cudzy reporter nie zamilkł | [x] |
 | Hangi | watchdog na własnym wątku pinguje main queue; brak odpowiedzi ponad `Options.hangThreshold` (2 s) = `kind: 'hang'` ze stosem **main threada**, nie watchdoga. Jeden raport na epizod i **zmierzony** czas, nigdy próg | [x] |
-| Non-fatale | `Union.recordError(_:reason:)` / `recordError(_ error:)` → `kind: 'nonfatal'`, `is_fatal: false`. Osobna dotkliwość, nigdy dodawana do liczby crashy | [x] |
-| Breadcrumbs | ring buffer w C (64 wpisy), zasilany z jednego lejka `push()` w pipeline — screeny, eventy auto i własne — plus `Union.leaveBreadcrumb(_:)`. **Nazwy, nigdy wartości**: kontrakt nie ma pola na wartość, bo breadcrumbs nie przechodzą przez zdalny kill switch eventów | [x] |
-| Custom keys | `Union.setCrashKey(_:_:)`, ≤ 8 kluczy, wartości ≤ 256 znaków. **Zakazane w `strictAnonymous`** — appka, która nie może wysłać `user_id`, nie może przesłać `{"email": …}` pod kluczem crasha; serwer odrzuca taki batch niezależnie | [x] |
+| Non-fatale | `Tapll.recordError(_:reason:)` / `recordError(_ error:)` → `kind: 'nonfatal'`, `is_fatal: false`. Osobna dotkliwość, nigdy dodawana do liczby crashy | [x] |
+| Breadcrumbs | ring buffer w C (64 wpisy), zasilany z jednego lejka `push()` w pipeline — screeny, eventy auto i własne — plus `Tapll.leaveBreadcrumb(_:)`. **Nazwy, nigdy wartości**: kontrakt nie ma pola na wartość, bo breadcrumbs nie przechodzą przez zdalny kill switch eventów | [x] |
+| Custom keys | `Tapll.setCrashKey(_:_:)`, ≤ 8 kluczy, wartości ≤ 256 znaków. **Zakazane w `strictAnonymous`** — appka, która nie może wysłać `user_id`, nie może przesłać `{"email": …}` pod kluczem crasha; serwer odrzuca taki batch niezależnie | [x] |
 | Obrazy binarne | snapshot dyld **przy instalacji** (`LC_UUID`, `__TEXT`), bo w handlerze wzięcie locka dyld to deadlock. Konsekwencja jest udokumentowana: biblioteka doładowana później nie ma wpisu, a jej ramki idą z `image: null` | [x] |
 | Stos | własne przejście po łańcuchu frame pointerów (nigdy `backtrace()` — libunwind alokuje i bierze locki), z walidacją każdego kroku; `arm64` przez akcesory pc/lr/fp, żeby nie wysłać adresu z bitami PAC | [x] |
 | Stan urządzenia | próbkowany **przed** crashem (pamięć, dysk, bateria, orientacja, jailbreak) i opisany jako próbka; `uptime_ms` i `in_foreground` czyta sam handler. Każde pole opcjonalne — brak odpowiedzi zostaje brakiem, nigdy zerem | [x] |
@@ -211,13 +217,13 @@ kto odinstalował, nigdy.
 | Limity paczki | ≤ 8 raportów, ≤ 1 MB po gzipie i ≤ 8 MB po rozpakowaniu (ingest capuje odczyt **rozpakowany**: `content-length` przestaje ograniczać pamięć, a gzip bomb to kilobajt na drucie). Duży raport jedzie sam | [x] |
 | `503` | osobne od 5xx z reszty świata: „nie udało się odłożyć tego raportu, ponów" — plik **zostaje**, nie jest ani skasowany, ani policzony jako trwałe odrzucenie | [x] |
 | Kontrakt v2 (0.4.0) | paczka niesie `contract_version: 2`, a **każdy** raport `platform: "ios"` (musi zgadzać się z `context.os_name`). Ingest nadal przyjmuje v1, ale ten SDK już go nie wysyła. **Rekordy z 0.3.x nadal się wysyłają po aktualizacji appki**: formaty na dysku (`.ucr`, sidecar, `.report.json`) się nie zmieniły i nie są migrowane — `platform` dopisuje się przy uploadzie (`CrashReporter.asV2`), bo raport v1 mógł pochodzić wyłącznie z tego SDK. Kontekst raportu zostaje z chwili crasha (stare `sdk_version`, bez `sdk_wrapper`). Zabetonowane `testAReportFileWrittenBy03xUploadsAsV2WithPlatformIos` i `testABinaryRecordWrittenBy03xUploadsAsV2WithPlatformIos` | [x] |
-| Dwie wersje, nie jedna | `UNION_CRASH_RECORD_VERSION` (format pliku na dysku, czytany przez **następne** uruchomienie, więc może być starszy niż binarka) jest niezależny od `contract_version` paczki `crash-batch` — a ten jest niezależny od `EventBatch`. Trzy liczby, trzy powody do zmiany | [x] |
-| Most wrapperów (0.4.0) | dokładnie dwa wywołania `@_spi(Wrapper)` na `Union` (`@_spi(Wrapper) import Union`), poza publicznym interfejsem i bez obietnicy stabilności poza `SDK-PLATFORMS.md`. `setWrapper(name:version:)` — przed `configure`: ustawia `device.sdk_wrapper = "<name>/<version>"` i dopisuje ` <name>/<version>` do `User-Agent` (eventy **i** crashe); po `configure` albo dla nazwy/wersji pustej, ze spacją lub `/`, albo gdy całość > 32 znaki — **ignorowane z logiem** (przycięta wersja nazywałaby wydanie, którego nie ma). `recordManagedError(type:reason:frames:fatal:thread:)` — błąd Darta/JS ze sparsowanym stosem (`ManagedFrame`: `function`, `module?`, `file?`, `line?`, `column?`, `inApp`; `n` z kolejności tablicy, ≤ 128, ucięcie → `frames_truncated`). `fatal: false` → `nonfatal`, ta sama ścieżka co `recordError`. `fatal: true` → raport `fatal` **zapisany synchronicznie** do magazynu crashy (runtime zaraz zabije proces) i wysłany przy następnym uruchomieniu; wątek `thread` (domyślnie `main`, RN przekazuje `js`). Raport zarządzany **nie ma obrazów binarnych**; pusty `function` → `<anonymous>`, `line`/`column` ≤ 0 → brak, pusty `type` → `Error` (kontrakt wymaga `exception.type` przy ramkach zarządzanych) | [x] |
+| Dwie wersje, nie jedna | `TAPLL_CRASH_RECORD_VERSION` (format pliku na dysku, czytany przez **następne** uruchomienie, więc może być starszy niż binarka) jest niezależny od `contract_version` paczki `crash-batch` — a ten jest niezależny od `EventBatch`. Trzy liczby, trzy powody do zmiany | [x] |
+| Most wrapperów (0.4.0) | dokładnie dwa wywołania `@_spi(Wrapper)` na `Tapll` (`@_spi(Wrapper) import Tapll`), poza publicznym interfejsem i bez obietnicy stabilności poza `SDK-PLATFORMS.md`. `setWrapper(name:version:)` — przed `configure`: ustawia `device.sdk_wrapper = "<name>/<version>"` i dopisuje ` <name>/<version>` do `User-Agent` (eventy **i** crashe); po `configure` albo dla nazwy/wersji pustej, ze spacją lub `/`, albo gdy całość > 32 znaki — **ignorowane z logiem** (przycięta wersja nazywałaby wydanie, którego nie ma). `recordManagedError(type:reason:frames:fatal:thread:)` — błąd Darta/JS ze sparsowanym stosem (`ManagedFrame`: `function`, `module?`, `file?`, `line?`, `column?`, `inApp`; `n` z kolejności tablicy, ≤ 128, ucięcie → `frames_truncated`). `fatal: false` → `nonfatal`, ta sama ścieżka co `recordError`. `fatal: true` → raport `fatal` **zapisany synchronicznie** do magazynu crashy (runtime zaraz zabije proces) i wysłany przy następnym uruchomieniu; wątek `thread` (domyślnie `main`, RN przekazuje `js`). Raport zarządzany **nie ma obrazów binarnych**; pusty `function` → `<anonymous>`, `line`/`column` ≤ 0 → brak, pusty `type` → `Error` (kontrakt wymaga `exception.type` przy ramkach zarządzanych) | [x] |
 | Retencja lokalna | `Options.maxStoredCrashReports` (16), najstarsze wypadają pierwsze — pętla crashy przy starcie bez sieci nie może zapchać dysku | [x] |
 | `optOut()` | kasuje też katalog crashów, nie tylko kolejkę eventów | [x] |
-| Domyślnie | **włączone** (`Options.crashReporting = true`), po obu stronach: serwerowa bramka `crash_reporting_enabled` też jest domyślnie włączona (migracja 0056 w repo `Union`). Wyłączenie po stronie projektu **nie** zatrzymuje uploadu — zamienia go w zapisaną odmowę (`collection_disabled`), więc nic nie ginie po cichu | [x] |
-| Weryfikacja end-to-end | `Scripts/crash-e2e.sh` — proces **naprawdę** umiera na SIGSEGV, drugi proces znajduje rekord na dysku i wysyła go gzipem do lokalnego udawanego `/v1/crash`. To jedyny szew, którego `swift test` nie umie dotknąć: runner, który dostaje SIGSEGV, nie raportuje nic, więc `CrashTests` idzie przez `union_crash_capture_live`. Skrypt sprawdza też, że nieudany upload **zostawia** plik. Uruchamiać przed releasem i po każdej zmianie w `Sources/UnionCrashCore` lub `Sources/Union/Crash` | [x] |
-| Symbolikacja | **nie w SDK.** Offsety to tożsamość, symbole to wyświetlanie: panel podaje gotową komendę `atos` per obraz. Nazwy funkcji daje upload dSYM **z CI klienta** (skrypt `https://useunion.dev/dsyms/v1.sh`, przypięty SHA-256, klucz serwerowy `UNION_SERVER_KEY` → `POST /v1/symbols`), nie z aplikacji — SDK nie ma w tym udziału i nie wolno mu tego dodać (klucz serwerowy nie może leżeć w buildzie). Upload nazywa ramki i **nigdy nie przegrupowuje** historii | — |
+| Domyślnie | **włączone** (`Options.crashReporting = true`), po obu stronach: serwerowa bramka `crash_reporting_enabled` też jest domyślnie włączona (migracja 0056 w repo `Tapll`). Wyłączenie po stronie projektu **nie** zatrzymuje uploadu — zamienia go w zapisaną odmowę (`collection_disabled`), więc nic nie ginie po cichu | [x] |
+| Weryfikacja end-to-end | `Scripts/crash-e2e.sh` — proces **naprawdę** umiera na SIGSEGV, drugi proces znajduje rekord na dysku i wysyła go gzipem do lokalnego udawanego `/v1/crash`. To jedyny szew, którego `swift test` nie umie dotknąć: runner, który dostaje SIGSEGV, nie raportuje nic, więc `CrashTests` idzie przez `tapll_crash_capture_live`. Skrypt sprawdza też, że nieudany upload **zostawia** plik. Uruchamiać przed releasem i po każdej zmianie w `Sources/TapllCrashCore` lub `Sources/Tapll/Crash` | [x] |
+| Symbolikacja | **nie w SDK.** Offsety to tożsamość, symbole to wyświetlanie: panel podaje gotową komendę `atos` per obraz. Nazwy funkcji daje upload dSYM **z CI klienta** (skrypt `https://tapll.com/dsyms/v1.sh`, przypięty SHA-256, klucz serwerowy `TAPLL_SERVER_KEY` → `POST /v1/symbols`), nie z aplikacji — SDK nie ma w tym udziału i nie wolno mu tego dodać (klucz serwerowy nie może leżeć w buildzie). Upload nazywa ramki i **nigdy nie przegrupowuje** historii | — |
 
 Reguły, których nie łamiemy:
 - **Trzy zegary są rozdzielne.** `crashed_at` (atrybucja dnia), `sent_at` (opóźnienie uploadu),
@@ -227,21 +233,21 @@ Reguły, których nie łamiemy:
   naprawił.
 - **Rekord bez wątku oznaczonego jako crashed jest porzucany, nie naprawiany.** Wybranie wątku 0
   postawiłoby issue, regresję i alert na stosie, o którym nikt nie ustalił, że zabił proces.
-- **Rekord w nowszym formacie jest odrzucany, nie reinterpretowany** (`UNION_CRASH_RECORD_VERSION`).
+- **Rekord w nowszym formacie jest odrzucany, nie reinterpretowany** (`TAPLL_CRASH_RECORD_VERSION`).
   Źle odczytany stos daje wiarygodne ramki i odcisk, który skleja niepowiązane crashe.
 
 ## 5. Integracje
 
 | Integracja | Co robi SDK | Stan |
 |---|---|---|
-| SwiftUI | `.trackScreen("Name")` — cienka nakładka na `Union.screen`; sama ścieżka `$screen_view` ma test, modyfikator nie | [~] |
+| SwiftUI | `.trackScreen("Name")` — cienka nakładka na `Tapll.screen`; sama ścieżka `$screen_view` ma test, modyfikator nie | [~] |
 | UIKit | `automaticScreenTracking` — swizzling `viewDidAppear`, kontrolery kontenerowe/systemowe pomijane | [~] |
 | Deep linki | `handleDeepLink(url)` z `onOpenURL` / scene delegate; bez automatycznego przechwytywania | [x] |
 | Środowisko | auto-detekcja: DEBUG → `development`, sandbox receipt → `testflight`, inaczej `production`; nadpisywalne w `Options` | [x] |
-| App Store Server Notifications | **jeden styk, i bez niego atrybucji nie ma.** Aplikacja ustawia `Product.PurchaseOption.appAccountToken = Union.installUUID` przy zakupie; Apple odbija ten token na każdej notyfikacji i po nim Union łączy zakup/odnowienie/refund z osobą i sesją. Token nie-UUID **nie linkuje nic i nie zgłasza tego**, a zakupów sprzed jego ustawienia nie da się połączyć wstecz — tokenu nie zapisywaliśmy. SDK daje typ (`Union.installUUID: UUID?`, `nil` przed `configure` i w `strictAnonymous`) i snippet w README; nie importuje StoreKit i nie owija zakupu | [x] |
-| RevenueCat | **nic w hot pathu.** Revenue wchodzi webhookiem RC → `apps/ingest`. Dwa styki po stronie aplikacji: atrybut subskrybenta `union_install_id` = `Union.installId` (pierwsza ścieżka wiązania) i `Union.identify(userId:)` tym samym id co RC `app_user_id` (druga). RC jest właścicielem liczb wyłącznie w projekcie **bez** ASSN | [x] |
-| Survicate / NPS | **prawie nic, ale dwa styki.** Odpowiedzi wchodzą webhookiem Survicate → `apps/ingest`; SDK nie czyta ankiet i nie wysyła odpowiedzi. Styk pierwszy: aplikacja ustawia `SurvicateSdk.shared.setUserTrait(UserTrait(withName: "union_install_id", value: <install_id>))`, żeby odpowiedź trafiła na profil osoby — bez tego Union próbuje dopasować po `user_id`, a w ostatniej kolejności pyta Data Export API. Styk drugi: eventy z sekcji 1a. Treści odpowiedzi Union nie przyjmuje w żadnej formie | [ ] |
-| Flutter / React Native | cienkie wrappery nad tym SDK (`union_analytics`, `@useunion/react-native`): nic nie wysyłają same, tylko przekazują wywołania; deklarują się przez `setWrapper` (sekcja 4a). Aplikacja używa wrappera, nie tego SPI | [x] |
+| App Store Server Notifications | **jeden styk, i bez niego atrybucji nie ma.** Aplikacja ustawia `Product.PurchaseOption.appAccountToken = Tapll.installUUID` przy zakupie; Apple odbija ten token na każdej notyfikacji i po nim Tapll łączy zakup/odnowienie/refund z osobą i sesją. Token nie-UUID **nie linkuje nic i nie zgłasza tego**, a zakupów sprzed jego ustawienia nie da się połączyć wstecz — tokenu nie zapisywaliśmy. SDK daje typ (`Tapll.installUUID: UUID?`, `nil` przed `configure` i w `strictAnonymous`) i snippet w README; nie importuje StoreKit i nie owija zakupu | [x] |
+| RevenueCat | **nic w hot pathu.** Revenue wchodzi webhookiem RC → `apps/ingest`. Dwa styki po stronie aplikacji: atrybut subskrybenta `tapll_install_id` = `Tapll.installId` (pierwsza ścieżka wiązania) i `Tapll.identify(userId:)` tym samym id co RC `app_user_id` (druga). RC jest właścicielem liczb wyłącznie w projekcie **bez** ASSN | [x] |
+| Survicate / NPS | **prawie nic, ale dwa styki.** Odpowiedzi wchodzą webhookiem Survicate → `apps/ingest`; SDK nie czyta ankiet i nie wysyła odpowiedzi. Styk pierwszy: aplikacja ustawia `SurvicateSdk.shared.setUserTrait(UserTrait(withName: "tapll_install_id", value: <install_id>))`, żeby odpowiedź trafiła na profil osoby — bez tego Tapll próbuje dopasować po `user_id`, a w ostatniej kolejności pyta Data Export API. Styk drugi: eventy z sekcji 1a. Treści odpowiedzi Tapll nie przyjmuje w żadnej formie | [ ] |
+| Flutter / React Native | cienkie wrappery nad tym SDK (`tapll_analytics`, `@tapll/react-native`): nic nie wysyłają same, tylko przekazują wywołania; deklarują się przez `setWrapper` (sekcja 4a). Aplikacja używa wrappera, nie tego SPI | [x] |
 | Push / notyfikacje | poza MVP | [ ] |
 | Crash reporting | **własne, zaimplementowane** — patrz sekcja 4a. Kontrakt to `crash-batch.v2.json` (od 0.4.0), nie `EventBatch` | [x] |
 | Feature flags | poza MVP | — |
@@ -252,7 +258,7 @@ Nowa integracja przechodzi ten sam próg: wiersz w tabeli + odpowiedź na pytani
 
 - [ ] `swift test` przechodzi (host macOS; części UIKit wykompilowane)
 - [ ] testy zgodności ze schematem walidują każdą zakodowaną paczkę względem `event-batch.v1.json` (eventy) i `crash-batch.v2.json` (crashe)
-- [ ] fixtures schematów odświeżone, jeśli kontrakt w repo `Union` się zmienił (ostatnio: `device.sdk_wrapper` i crash v2)
+- [ ] fixtures schematów odświeżone, jeśli kontrakt w repo `Tapll` się zmienił (ostatnio: `device.sdk_wrapper` i crash v2)
 - [ ] `README.md` zgadza się z zachowaniem (README to publiczna obietnica)
 - [ ] wiersz w tej checkliście dopisany/zaktualizowany, stan `[x]/[~]/[ ]` prawdziwy
 - [ ] stringi user-facing i logi po angielsku

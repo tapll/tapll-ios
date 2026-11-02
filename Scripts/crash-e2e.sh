@@ -3,11 +3,11 @@
 # End-to-end crash check: one process really dies, the next one uploads what it left behind.
 #
 # `swift test` cannot cover this seam — a test runner that takes SIGSEGV reports nothing, which is why
-# `CrashTests` goes through `union_crash_capture_live` instead. So this runs the real thing: install
+# `CrashTests` goes through `tapll_crash_capture_live` instead. So this runs the real thing: install
 # the handler, dereference null, let the process die, then start a *second* process that finds the
 # record on disk and POSTs it to a local stand-in for /v1/crash.
 #
-# Run it before a release, and after any change to Sources/UnionCrashCore or Sources/Union/Crash.
+# Run it before a release, and after any change to Sources/TapllCrashCore or Sources/Tapll/Crash.
 #
 #   Scripts/crash-e2e.sh
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
-PORT="${UNION_CRASH_E2E_PORT:-8923}"
+PORT="${TAPLL_CRASH_E2E_PORT:-${UNION_CRASH_E2E_PORT:-8923}}"  # UNION_* accepted as a fallback
 BATCH="$WORK/batch.json"
 SERVER_PID=""
 
@@ -32,14 +32,14 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 cd "$ROOT"
 
-echo "==> building Union (debug)"
+echo "==> building Tapll (debug)"
 swift build > "$WORK/build.log" 2>&1 || { cat "$WORK/build.log"; fail "swift build"; }
 
 # The handler is C and the reporter's entry points are internal, so the harness is compiled against
 # the debug objects with -enable-testing rather than linked as a package product.
 cat > "$WORK/module.modulemap" <<MAP
-module UnionCrashCore {
-    umbrella "$ROOT/Sources/UnionCrashCore/include"
+module TapllCrashCore {
+    umbrella "$ROOT/Sources/TapllCrashCore/include"
     export *
 }
 MAP
@@ -48,10 +48,10 @@ echo "==> building the harness"
 swiftc -o "$WORK/harness" Scripts/crash-e2e/harness.swift \
     -enable-testing \
     -I .build/debug/Modules \
-    -I Sources/UnionCrashCore/include \
+    -I Sources/TapllCrashCore/include \
     -Xcc -fmodule-map-file="$WORK/module.modulemap" \
-    .build/debug/Union.build/*.o \
-    .build/debug/UnionCrashCore.build/*.o \
+    .build/debug/Tapll.build/*.o \
+    .build/debug/TapllCrashCore.build/*.o \
     -framework Foundation > "$WORK/harness-build.log" 2>&1 \
     || { cat "$WORK/harness-build.log"; fail "harness build"; }
 
