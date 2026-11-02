@@ -164,7 +164,7 @@ Using RevenueCat instead? Set the subscriber attribute `tapll_install_id` to `Ta
 
 ## Using Tapll from Flutter or React Native
 
-Cross-platform apps should use the Tapll wrappers (`tapll_analytics` for Flutter, `@tapll/react-native` for React Native) rather than calling this package from Dart or JavaScript. The wrappers sit on top of this SDK and forward to it, so sessions, queueing, retries, privacy modes and crash files stay the native SDK's, and reports from a wrapped app carry the wrapper's name and version. You still add this package to the iOS side through the wrapper's own setup instructions.
+Cross-platform apps should use the Tapll wrappers (`tapll` for Flutter, `@tapll/react-native` for React Native) rather than calling this package from Dart or JavaScript. The wrappers sit on top of this SDK and forward to it, so sessions, queueing, retries, privacy modes and crash files stay the native SDK's, and reports from a wrapped app carry the wrapper's name and version. You still add this package to the iOS side through the wrapper's own setup instructions.
 
 ## Privacy modes
 
