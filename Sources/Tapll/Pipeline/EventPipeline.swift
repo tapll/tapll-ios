@@ -68,6 +68,9 @@ actor EventPipeline {
 
     private let kv: KeyValueStore
     private var prepared = false
+    /// Flags already exposed in `exposureSession`; a new session starts the set again.
+    private var exposed: Set<String> = []
+    private var exposureSession: String?
 
     /// StoreKit's answer, when it arrives after `configure`. The envelope reads the environment at
     /// flush time, so a batch built from here on carries it — including events queued before, which
@@ -216,6 +219,22 @@ actor EventPipeline {
             event.role = .discovery
         }
         push(event)
+        scheduleFlushIfNeeded()
+    }
+
+    /// `$flag_exposure`, at most once per session per flag: the read is what the results follow, so a
+    /// flag read in every frame must not be an event per frame.
+    func flagExposure(flag: String, variant: String, reason: FlagReason) {
+        ensurePrepared()
+        guard !optedOut, analyticsCollectionEnabled, !stopped else { return }
+        let sid = liveSessionId()
+        if sid != exposureSession {
+            exposureSession = sid
+            exposed = []
+        }
+        guard exposed.insert(flag).inserted else { return }
+        let props: [String: PropertyValue] = ["flag": .string(flag), "variant": .string(variant), "reason": .string(reason.rawValue)]
+        push(system(.flagExposure, sessionId: sid, properties: props))
         scheduleFlushIfNeeded()
     }
 

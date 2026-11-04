@@ -11,12 +11,14 @@ final class AppLifecycleObserver {
     /// `in_foreground` is a field the handler reads from a byte, and it has to be right at the moment
     /// the process dies — not after an actor hop that a crash can happen in the middle of.
     private let crash: CrashReporter?
+    private let flags: FlagController?
     // Written once in init on the main actor, read in deinit; NotificationCenter tokens are safe to remove from any thread.
     nonisolated(unsafe) private var tokens: [NSObjectProtocol] = []
 
-    init(pipeline: EventPipeline, crash: CrashReporter?) {
+    init(pipeline: EventPipeline, crash: CrashReporter?, flags: FlagController? = nil) {
         self.pipeline = pipeline
         self.crash = crash
+        self.flags = flags
         crash?.setForeground(UIApplication.shared.applicationState == .active)
         let nc = NotificationCenter.default
         tokens.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
@@ -29,6 +31,8 @@ final class AppLifecycleObserver {
             guard let self else { return }
             self.crash?.setForeground(true)
             Task { await self.pipeline.willEnterForeground() }
+            // A return to the app is when a kill switch should land; at most every 5 minutes.
+            if let flags = self.flags { Task { await flags.refresh() } }
         })
         tokens.append(nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }

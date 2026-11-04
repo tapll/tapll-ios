@@ -74,6 +74,33 @@ public enum Tapll {
         Task { await p.screen(name: name, properties: properties, feature: feature) }
     }
 
+    /// A feature flag as this device sees it now (ADR 0006): `Tapll.flag("new_paywall").isEnabled`.
+    ///
+    /// Synchronous, never throws, never waits for the network: it evaluates the ruleset the device
+    /// last fetched. Without one — before the first fetch, offline on a first launch, a key the
+    /// project does not have — `variant` is `nil` and your coded default applies. The first read of
+    /// each flag in a session sends one `$flag_exposure`, which is what the panel's results follow.
+    public static func flag(_ key: String) -> Flag {
+        guard let client = shared else { return Flag(key: key, evaluation: nil) }
+        let evaluation = client.flags.evaluate(key, context: client.flagContext())
+        if let evaluation {
+            let p = client.pipeline
+            Task { await p.flagExposure(flag: key, variant: evaluation.variant, reason: evaluation.reason) }
+        }
+        return Flag(key: key, evaluation: evaluation)
+    }
+
+    /// Fetches the project's flags now, ignoring the 5-minute interval. `configure` and every
+    /// return to the app already fetch; call this only after something the app knows changed them.
+    public static func refreshFlags() async {
+        await shared?.flags.refresh(force: true)
+    }
+
+    /// Called (on an arbitrary thread) when a fetch brought a different ruleset. Re-read the flags you show.
+    public static func onFlagsChanged(_ handler: @escaping @Sendable () -> Void) {
+        shared?.flags.onChange(handler)
+    }
+
     /// A typed handle for one feature: `Tapll.feature("checkout").success("order_placed")`. The key is
     /// validated here so a bad one is logged once, not on every event; events through a bad handle are
     /// dropped (see `Feature`).

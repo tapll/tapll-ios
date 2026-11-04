@@ -11,6 +11,10 @@ final class Client: Sendable {
     let identity: IdentityCoordinator
     /// `nil` when `Options.crashReporting` is off — nothing is installed then, not even the directory.
     let crash: CrashReporter?
+    /// Feature flags (ADR 0006): the stored ruleset and synchronous evaluation over it.
+    let flags: FlagController
+    /// App version and locale for flag rules; fixed for the process, like the batch's device block.
+    let flagDevice: (appVersion: String, locale: String)
     #if canImport(UIKit) && !os(watchOS)
     @MainActor private var lifecycle: AppLifecycleObserver?
     #endif
@@ -57,6 +61,16 @@ final class Client: Sendable {
                                        identityStore: identityStore, logger: logger)
             : nil
         crash = reporter
+        let flags = FlagController(
+            writeKey: writeKey,
+            environment: environment,
+            transport: URLSessionFlagTransport(endpoint: options.flagsEndpoint ?? URLSessionFlagTransport.endpoint(from: options.endpoint),
+                                               userAgent: SDKInfo.userAgent(wrapper: wrapper)),
+            directoryName: keyHash,
+            logger: logger
+        )
+        self.flags = flags
+        flagDevice = (device.appVersion, device.locale)
         logger.log(.info, "configured · env=\(environment.rawValue) · privacy=\(privacyMode.rawValue) · sdk=\(SDKInfo.version)\(wrapper.map { " wrapper=\($0)" } ?? "") · crashes=\(options.crashReporting ? "on" : "off")")
         let p = pipeline
         // The synchronous guess above can be wrong, and with one write key for every build nothing
@@ -69,9 +83,12 @@ final class Client: Sendable {
                 guard let refined = await EnvironmentDetector.refined(), refined != initial else { return }
                 await p.setEnvironment(refined)
                 reporter?.setEnvironment(refined)
+                flags.setEnvironment(refined)
+                await flags.refresh(force: true)
                 log.log(.info, "environment · \(initial.rawValue) → \(refined.rawValue) (StoreKit AppTransaction)")
             }
         }
+        Task { await flags.refresh(force: true) }
         if let reporter {
             reporter.start(sessionId: nil)
             Task {
@@ -84,10 +101,17 @@ final class Client: Sendable {
         #if canImport(UIKit) && !os(watchOS)
         let auto = options.automaticScreenTracking
         Task { @MainActor in
-            self.lifecycle = AppLifecycleObserver(pipeline: p, crash: reporter)
+            self.lifecycle = AppLifecycleObserver(pipeline: p, crash: reporter, flags: flags)
             if auto { AutomaticScreenTracking.install() }
         }
         #endif
+    }
+
+    /// The device as flag rules see it: the bucket id is the account after identify, else the install.
+    func flagContext() -> FlagContext {
+        let id = identity.ensure(now: Date())
+        return FlagContext(bucketId: id.userId ?? id.installId, platform: "ios", appVersion: flagDevice.appVersion,
+                           locale: flagDevice.locale, traits: id.traits ?? [:])
     }
 
     func shutdown() {

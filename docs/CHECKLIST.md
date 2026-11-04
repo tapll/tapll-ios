@@ -250,7 +250,7 @@ Reguły, których nie łamiemy:
 | Flutter / React Native | cienkie wrappery nad tym SDK (`tapll`, `@tapll/react-native`): nic nie wysyłają same, tylko przekazują wywołania; deklarują się przez `setWrapper` (sekcja 4a). Aplikacja używa wrappera, nie tego SPI | [x] |
 | Push / notyfikacje | poza MVP | [ ] |
 | Crash reporting | **własne, zaimplementowane** — patrz sekcja 4a. Kontrakt to `crash-batch.v2.json` (od 0.4.0), nie `EventBatch` | [x] |
-| Feature flags | poza MVP | — |
+| Feature flags | **od 0.6.0** (ADR 0006 w tapll-panel). `Tapll.flag(key)` → `Flag` (`isEnabled`, `variant`, `value(default:)`), synchronicznie nad rulesetem z `GET /v1/flags` (ETag, `?environment=`), pobieranym przy `configure` i po powrocie do aplikacji najwyżej co 5 min, trzymanym w `Application Support/Tapll/<keyHash>/flags.json` (wyłączone z backupu). Ewaluacja to port `packages/contract/src/flags.ts`, przypięty `Fixtures/flag-vectors.v1.json` (FNV-1a 32 nad `salt:bucketId`; bucket id = `user_id` po identify, inaczej install id; w `strictAnonymous` brak → podział daje default). Na wire tylko `$flag_exposure` (`flag`, `variant`, `reason`) raz na sesję na flagę — nazwa flagi i wariantu to klucze nadane w panelu, nie PII. Traits nie opuszczają urządzenia | [x] |
 
 Nowa integracja przechodzi ten sam próg: wiersz w tabeli + odpowiedź na pytanie „co dokładnie leci na wire i dlaczego to nie jest PII”.
 

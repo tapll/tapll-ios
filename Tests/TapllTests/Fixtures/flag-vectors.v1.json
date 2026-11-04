@@ -1,0 +1,421 @@
+{
+  "version": 1,
+  "definitions": {
+    "half": {
+      "kind": "boolean",
+      "variants": [
+        "off",
+        "on"
+      ],
+      "salt": "s1",
+      "enabled": true,
+      "defaultVariant": "off",
+      "rules": [],
+      "rollout": [
+        {
+          "variant": "off",
+          "weight": 5000
+        },
+        {
+          "variant": "on",
+          "weight": 5000
+        }
+      ]
+    },
+    "disabled": {
+      "kind": "boolean",
+      "variants": [
+        "off",
+        "on"
+      ],
+      "salt": "s2",
+      "enabled": false,
+      "defaultVariant": "off",
+      "rules": [],
+      "rollout": [
+        {
+          "variant": "off",
+          "weight": 0
+        },
+        {
+          "variant": "on",
+          "weight": 10000
+        }
+      ]
+    },
+    "paywall": {
+      "kind": "variant",
+      "variants": [
+        "control",
+        "annual",
+        "trial"
+      ],
+      "salt": "pw",
+      "enabled": true,
+      "defaultVariant": "control",
+      "rules": [
+        {
+          "when": [
+            {
+              "attribute": "trait",
+              "key": "plan",
+              "in": [
+                "staff"
+              ]
+            }
+          ],
+          "serve": {
+            "variant": "trial"
+          }
+        },
+        {
+          "when": [
+            {
+              "attribute": "platform",
+              "in": [
+                "android"
+              ]
+            },
+            {
+              "attribute": "app_version",
+              "op": "lt",
+              "value": "2.0"
+            }
+          ],
+          "serve": {
+            "variant": "control"
+          }
+        },
+        {
+          "when": [
+            {
+              "attribute": "locale",
+              "in": [
+                "pl"
+              ]
+            }
+          ],
+          "serve": {
+            "split": [
+              {
+                "variant": "control",
+                "weight": 5000
+              },
+              {
+                "variant": "annual",
+                "weight": 5000
+              }
+            ]
+          }
+        }
+      ],
+      "rollout": [
+        {
+          "variant": "control",
+          "weight": 3334
+        },
+        {
+          "variant": "annual",
+          "weight": 3333
+        },
+        {
+          "variant": "trial",
+          "weight": 3333
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-0",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 4457,
+      "expected": {
+        "variant": "off",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-1",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 6838,
+      "expected": {
+        "variant": "on",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-2",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 9219,
+      "expected": {
+        "variant": "on",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-3",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 1600,
+      "expected": {
+        "variant": "off",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-4",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 4933,
+      "expected": {
+        "variant": "off",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-5",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 7314,
+      "expected": {
+        "variant": "on",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-6",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 9695,
+      "expected": {
+        "variant": "on",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": "install-7",
+        "platform": "ios",
+        "appVersion": "1.0"
+      },
+      "bucket": 2076,
+      "expected": {
+        "variant": "off",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "half",
+      "context": {
+        "bucketId": null,
+        "platform": "ios"
+      },
+      "bucket": null,
+      "expected": {
+        "variant": "off",
+        "reason": "default"
+      }
+    },
+    {
+      "flag": "disabled",
+      "context": {
+        "bucketId": "install-1",
+        "platform": "ios"
+      },
+      "bucket": 1339,
+      "expected": {
+        "variant": "off",
+        "reason": "off"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "u-1",
+        "platform": "ios",
+        "traits": {
+          "plan": "staff"
+        }
+      },
+      "bucket": 4951,
+      "expected": {
+        "variant": "trial",
+        "reason": "rule"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "u-2",
+        "platform": "android",
+        "appVersion": "1.9.3"
+      },
+      "bucket": 2570,
+      "expected": {
+        "variant": "control",
+        "reason": "rule"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "u-2",
+        "platform": "android",
+        "appVersion": "2.0"
+      },
+      "bucket": 2570,
+      "expected": {
+        "variant": "control",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "u-3",
+        "platform": "web",
+        "locale": "pl-PL"
+      },
+      "bucket": 189,
+      "expected": {
+        "variant": "control",
+        "reason": "rule"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": null,
+        "platform": "web",
+        "locale": "pl"
+      },
+      "bucket": null,
+      "expected": {
+        "variant": "control",
+        "reason": "default"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "zażółć-0",
+        "platform": "ios",
+        "locale": "en_US"
+      },
+      "bucket": 5875,
+      "expected": {
+        "variant": "annual",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "zażółć-1",
+        "platform": "ios",
+        "locale": "en_US"
+      },
+      "bucket": 8256,
+      "expected": {
+        "variant": "trial",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "zażółć-2",
+        "platform": "ios",
+        "locale": "en_US"
+      },
+      "bucket": 1113,
+      "expected": {
+        "variant": "control",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "zażółć-3",
+        "platform": "ios",
+        "locale": "en_US"
+      },
+      "bucket": 3494,
+      "expected": {
+        "variant": "annual",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "zażółć-4",
+        "platform": "ios",
+        "locale": "en_US"
+      },
+      "bucket": 6351,
+      "expected": {
+        "variant": "annual",
+        "reason": "rollout"
+      }
+    },
+    {
+      "flag": "paywall",
+      "context": {
+        "bucketId": "zażółć-5",
+        "platform": "ios",
+        "locale": "en_US"
+      },
+      "bucket": 8732,
+      "expected": {
+        "variant": "trial",
+        "reason": "rollout"
+      }
+    }
+  ],
+  "hashes": [
+    {
+      "input": "",
+      "fnv1a32": 2166136261
+    },
+    {
+      "input": "a",
+      "fnv1a32": 3826002220
+    },
+    {
+      "input": "tapll",
+      "fnv1a32": 4272923090
+    },
+    {
+      "input": "zażółć gęślą jaźń",
+      "fnv1a32": 3663367077
+    }
+  ]
+}

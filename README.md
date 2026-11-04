@@ -95,6 +95,27 @@ in the key creates a second feature; it shows up as "Declared in code" with its 
 archiving. Keys follow the event-name rules (`snake_case`, max 64 chars). `Tapll.track(_:feature:role:)`
 is the same thing without the handle.
 
+## Feature flags
+
+Create a flag in Tapll (Features → Flags), then read it anywhere:
+
+```swift
+if Tapll.flag("new_paywall").isEnabled {
+    showNewPaywall()
+}
+
+switch Tapll.flag("paywall_layout").value(default: "control") {
+case "annual": showAnnualFirst()
+default: showControl()
+}
+```
+
+Reads are synchronous and never throw. Until the first fetch completes — and for a key the project does
+not have — `variant` is `nil` and your default applies. Flags are fetched at `configure` and whenever the
+app comes back to the foreground (at most every 5 minutes), and kept on disk. Targeting by traits uses the
+traits you pass to `identify`; they never leave the device. Don't put secrets in flags: anyone with the
+app's client key can read the ruleset.
+
 ## Crashes, hangs and non-fatals
 
 On by default. `configure` installs the handlers — signals, mach exceptions, `NSException` — and a

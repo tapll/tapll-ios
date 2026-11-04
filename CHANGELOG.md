@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+- **Feature flags.** `Tapll.flag("new_paywall")` returns a `Flag` with `isEnabled`, `variant` and
+  `value(default:)`. Reads are synchronous and never throw; before the first fetch, offline on a first
+  launch, or for a key the project does not have, `variant` is `nil` and the default you coded applies.
+- Flags are fetched from `GET /v1/flags` at `configure` and on every return to the app (at most every
+  5 minutes), with an ETag, and kept on disk for the next launch. `Tapll.refreshFlags()` fetches now;
+  `Tapll.onFlagsChanged { }` is called when a fetch brought a different ruleset.
+- Evaluation happens on the device, so traits from `identify` can target a flag without leaving it.
+  In `strictAnonymous` there is no stable id, so a percentage split serves the flag's default.
+- `Options.flagsEndpoint` (derived from `endpoint`, `/v1/batch` → `/v1/flags`, unless set).
+- The first read of each flag in a session sends one `$flag_exposure` event (`flag`, `variant`,
+  `reason`), which is what the panel's per-variant results follow.
+
 ## 0.5.0
 
 Rebrand: Union is now **Tapll**.

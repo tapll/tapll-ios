@@ -42,4 +42,6 @@ enum AutoEvent: String {
     case appInstall = "$app_install"
     case appUpdate = "$app_update"
     case deepLink = "$deep_link"
+    /// Once per session per flag, on the first read (ADR 0006).
+    case flagExposure = "$flag_exposure"
 }

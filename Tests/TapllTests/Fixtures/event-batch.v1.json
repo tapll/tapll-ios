@@ -54,7 +54,8 @@
               "type": "string",
               "enum": [
                 "iOS",
-                "Android"
+                "Android",
+                "Web"
               ]
             },
             "os_version": {
@@ -139,7 +140,11 @@
                       "$screen_view",
                       "$app_install",
                       "$app_update",
-                      "$deep_link"
+                      "$deep_link",
+                      "$flag_exposure",
+                      "$page_leave",
+                      "$outbound",
+                      "$download"
                     ]
                   },
                   {
