@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 ### Fixed
 - The crash handler resumes the threads it suspended once the record is on disk. An app whose runtime
