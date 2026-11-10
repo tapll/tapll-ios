@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- The crash handler resumes the threads it suspended once the record is on disk. An app whose runtime
+  recovers from the fault itself (Unity/Mono turning a null dereference into a managed exception) was
+  left with every other thread frozen.
+- The hang watchdog no longer reports the time an app spent suspended in the background as a main-thread
+  hang when it resumes.
+
 ## 0.6.0
 
 ### Added

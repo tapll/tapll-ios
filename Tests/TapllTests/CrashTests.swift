@@ -537,6 +537,13 @@ final class CrashTests: XCTestCase {
         XCTAssertNotEqual(port, 0, "the stack has to come from the blocked thread, not the watchdog")
     }
 
+    func testTheWatchdogTreatsAGapInItsOwnTicksAsSuspensionNotAHang() {
+        // Resumed after hours in the background, the outstanding ping is hours old. That is the time
+        // the app spent suspended, not a blocked main thread, and must not be reported as a hang.
+        XCTAssertFalse(HangWatchdog.isSuspension(sinceLastTick: 0.3))
+        XCTAssertTrue(HangWatchdog.isSuspension(sinceLastTick: 3 * 60 * 60))
+    }
+
     // MARK: - Helpers
 
     private func config(privacy: PrivacyMode) -> CrashReporter.Config {

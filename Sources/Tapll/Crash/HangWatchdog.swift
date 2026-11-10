@@ -58,13 +58,35 @@ final class HangWatchdog: @unchecked Sendable {
         lock.withLock { running = false }
     }
 
+    /// A gap between two ticks this much longer than the sleep means the process was suspended, not
+    /// that the main thread was blocked: iOS freezes every thread of a backgrounded app, and the clock
+    /// keeps running. Measured on the watchdog's own thread, so no lifecycle notification is needed.
+    static let suspendedGap: TimeInterval = tick * 8
+
+    /// What a tick should do with an unanswered ping, given how long the watchdog itself slept.
+    static func isSuspension(sinceLastTick: TimeInterval) -> Bool { sinceLastTick > suspendedGap }
+
     private func loop() {
+        var lastTick = Date()
         while lock.withLock({ running }) {
             Thread.sleep(forTimeInterval: HangWatchdog.tick)
             guard lock.withLock({ running }) else { return }
+            let now = Date()
+            let slept = now.timeIntervalSince(lastTick)
+            lastTick = now
 
             var toReport: (TimeInterval, mach_port_t)?
             lock.lock()
+            if HangWatchdog.isSuspension(sinceLastTick: slept) {
+                // Back from suspension with a ping outstanding: its age is the time the app spent in
+                // the background. Reported, it was a "hang" of minutes or hours that never happened.
+                // Start a fresh measurement instead; a main thread still stuck is caught by it.
+                answered = true
+                pingSentAt = nil
+                reportedThisEpisode = false
+                lock.unlock()
+                continue
+            }
             if answered {
                 // Previous ping came back: start a new measurement and close any episode.
                 answered = false

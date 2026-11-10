@@ -299,9 +299,10 @@ static size_t tapll_crash_serialize(tapll_crash_cause cause,
 /**
  * Suspends every thread but this one, so the frame walk sees stacks that are standing still.
  *
- * Not resumed on the crash paths: the process is about to be replaced by the kernel's own handling,
- * and resuming threads whose stacks we have already reported would let them run a few more
- * instructions for no benefit.
+ * Resumed as soon as the record is on disk. The process is usually about to die, but not always:
+ * Unity/Mono and other runtimes turn a null dereference into a managed exception from their own
+ * handler, which runs after ours and lets the app continue. Left suspended, every other thread of
+ * that app stayed frozen for good — the SDK turned a recovered fault into a hang.
  */
 static void tapll_crash_suspend_others(thread_t self, thread_t *threads, mach_msg_type_number_t count) {
     for (mach_msg_type_number_t i = 0; i < count; i++) {
@@ -354,6 +355,11 @@ static void tapll_crash_write(tapll_crash_cause cause,
         offset += (size_t)n;
     }
     fsync(g_fd);
+    if (threads) {
+        tapll_crash_resume_others(self, threads, count);
+        for (mach_msg_type_number_t i = 0; i < count; i++) mach_port_deallocate(mach_task_self(), threads[i]);
+        vm_deallocate(mach_task_self(), (vm_address_t)threads, count * sizeof(thread_t));
+    }
     mach_port_deallocate(mach_task_self(), self);
 }
 
