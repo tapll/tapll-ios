@@ -161,6 +161,30 @@ public enum Tapll {
         Task { await p.deepLink(url) }
     }
 
+    // MARK: - Retention
+
+    /// Records `$review_requested { source }`. Call it right after `requestReview()`; `source` is your
+    /// id for where you asked (`task_completed`, `settings`). Pair it with `ReviewPolicy` to decide when.
+    public static func reviewRequested(source: String) {
+        guard let p = shared?.pipeline else { return }
+        Task { await p.reviewRequested(source: source) }
+    }
+
+    /// Records `$notification_permission { status, prompted }` when the status changed since the last
+    /// report. Call it with the system dialog's answer (`prompted: true`) and with the current status on
+    /// every foreground (`prompted: false`); an unchanged status sends nothing.
+    public static func notificationPermission(_ status: NotificationPermission, prompted: Bool) {
+        guard let p = shared?.pipeline else { return }
+        Task { await p.notificationPermission(status: status, prompted: prompted) }
+    }
+
+    /// Records `$notification_opened { kind, action }`. `kind` is your id for the notification (`due`,
+    /// `alarm`); `action` is `open` for a tap, or the action button's id. Ids only, never a title.
+    public static func notificationOpened(kind: String, action: String = "open") {
+        guard let p = shared?.pipeline else { return }
+        Task { await p.notificationOpened(kind: kind, action: action) }
+    }
+
     // MARK: - Crashes
 
     /**

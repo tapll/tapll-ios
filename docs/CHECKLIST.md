@@ -27,6 +27,9 @@ Nazwa musi pochodzić z `AutoEventName`. Klient nigdy nie może wysłać `$…` 
 | `$background` | wejście w tło (poprzedzone flushem) | — | [x] |
 | `$screen_view` | `Tapll.screen(_:)` / `.trackScreen` / swizzling `viewDidAppear` | `screen` = nazwa; opcjonalne właściwości wywołania | [x] |
 | `$deep_link` | `Tapll.handleDeepLink(url)` | `url_scheme`, `host`, `path` — **nigdy** query ani fragment (PII) | [x] |
+| `$review_requested` | `Tapll.reviewRequested(source:)` — aplikacja właśnie wywołała `requestReview()` (0.7.0) | `source` (identyfikator snake_case) | [x] |
+| `$notification_permission` | `Tapll.notificationPermission(_:prompted:)` — **tylko przy zmianie** statusu względem ostatnio wysłanego (`notification_permission` w KV; `optOut` go czyści) | `status` ∈ `granted\|denied\|provisional\|not_determined`, `prompted` (bool) | [x] |
+| `$notification_opened` | `Tapll.notificationOpened(kind:action:)` | `kind`, `action` (identyfikatory snake_case; tekst powiadomienia nigdy) | [x] |
 
 Reguły, których nie łamiemy:
 - Kolejność w paczce jest chronologiczna, z jednym udokumentowanym wyjątkiem: `$session_end` starej sesji zawsze
@@ -248,7 +251,7 @@ Reguły, których nie łamiemy:
 | RevenueCat | **nic w hot pathu.** Revenue wchodzi webhookiem RC → `apps/ingest`. Dwa styki po stronie aplikacji: atrybut subskrybenta `tapll_install_id` = `Tapll.installId` (pierwsza ścieżka wiązania) i `Tapll.identify(userId:)` tym samym id co RC `app_user_id` (druga). RC jest właścicielem liczb wyłącznie w projekcie **bez** ASSN | [x] |
 | Survicate / NPS | **prawie nic, ale dwa styki.** Odpowiedzi wchodzą webhookiem Survicate → `apps/ingest`; SDK nie czyta ankiet i nie wysyła odpowiedzi. Styk pierwszy: aplikacja ustawia `SurvicateSdk.shared.setUserTrait(UserTrait(withName: "tapll_install_id", value: <install_id>))`, żeby odpowiedź trafiła na profil osoby — bez tego Tapll próbuje dopasować po `user_id`, a w ostatniej kolejności pyta Data Export API. Styk drugi: eventy z sekcji 1a. Treści odpowiedzi Tapll nie przyjmuje w żadnej formie | [ ] |
 | Flutter / React Native | cienkie wrappery nad tym SDK (`tapll`, `@tapll/react-native`): nic nie wysyłają same, tylko przekazują wywołania; deklarują się przez `setWrapper` (sekcja 4a). Aplikacja używa wrappera, nie tego SPI | [x] |
-| Push / notyfikacje | poza MVP | [ ] |
+| Push / notyfikacje | **od 0.7.0 raportowanie, nie wysyłka**: `Tapll.notificationPermission` (status przy zmianie) i `Tapll.notificationOpened` (otwarcie, `kind`/`action` jako identyfikatory). SDK nie rejestruje się do APNs i nie planuje powiadomień — robi to aplikacja. `ReviewPolicy` (lokalne liczniki w suite `app.tapll.sdk.review`) tylko odpowiada „czy pytać o ocenę”, prośbę wysyła aplikacja, po czym woła `Tapll.reviewRequested` | [x] |
 | Crash reporting | **własne, zaimplementowane** — patrz sekcja 4a. Kontrakt to `crash-batch.v2.json` (od 0.4.0), nie `EventBatch` | [x] |
 | Feature flags | **od 0.6.0** (ADR 0006 w tapll-panel). `Tapll.flag(key)` → `Flag` (`isEnabled`, `variant`, `value(default:)`), synchronicznie nad rulesetem z `GET /v1/flags` (ETag, `?environment=`), pobieranym przy `configure` i po powrocie do aplikacji najwyżej co 5 min, trzymanym w `Application Support/Tapll/<keyHash>/flags.json` (wyłączone z backupu). Ewaluacja to port `packages/contract/src/flags.ts`, przypięty `Fixtures/flag-vectors.v1.json` (FNV-1a 32 nad `salt:bucketId`; bucket id = `user_id` po identify, inaczej install id; w `strictAnonymous` brak → podział daje default). Na wire tylko `$flag_exposure` (`flag`, `variant`, `reason`) raz na sesję na flagę — nazwa flagi i wariantu to klucze nadane w panelu, nie PII. Traits nie opuszczają urządzenia | [x] |
 

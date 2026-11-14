@@ -142,6 +142,9 @@
                       "$app_update",
                       "$deep_link",
                       "$flag_exposure",
+                      "$review_requested",
+                      "$notification_permission",
+                      "$notification_opened",
                       "$page_leave",
                       "$outbound",
                       "$download"

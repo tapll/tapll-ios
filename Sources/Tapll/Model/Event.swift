@@ -44,4 +44,9 @@ enum AutoEvent: String {
     case deepLink = "$deep_link"
     /// Once per session per flag, on the first read (ADR 0006).
     case flagExposure = "$flag_exposure"
+    /// Retention facts the app reports through `Tapll.reviewRequested`, `notificationPermission` and
+    /// `notificationOpened` (0.7.0). Properties are ids the app chose, never text.
+    case reviewRequested = "$review_requested"
+    case notificationPermission = "$notification_permission"
+    case notificationOpened = "$notification_opened"
 }

@@ -249,6 +249,48 @@ actor EventPipeline {
         scheduleFlushIfNeeded()
     }
 
+    /// `$review_requested { source }`: the app has just asked StoreKit for a review.
+    func reviewRequested(source: String) {
+        emitRetention(.reviewRequested, ids: ["source": source], flags: [:])
+    }
+
+    /// `$notification_permission { status, prompted }`, only when `status` differs from the last one
+    /// sent, so an app can report on every foreground and the panel sees changes rather than polls.
+    func notificationPermission(status: NotificationPermission, prompted: Bool) {
+        ensurePrepared()
+        guard !optedOut, analyticsCollectionEnabled, !stopped else { return }
+        guard kv.string(forKey: Self.notificationPermissionKey) != status.rawValue else { return }
+        if emitRetention(.notificationPermission, ids: ["status": status.rawValue], flags: ["prompted": prompted]) {
+            kv.set(status.rawValue, forKey: Self.notificationPermissionKey)
+        }
+    }
+
+    /// `$notification_opened { kind, action }`: the person tapped a notification or one of its actions.
+    func notificationOpened(kind: String, action: String) {
+        emitRetention(.notificationOpened, ids: ["kind": kind, "action": action], flags: [:])
+    }
+
+    static let notificationPermissionKey = "notification_permission"
+
+    /// The retention events carry ids only. Each one is validated with the event-name alphabet, so
+    /// an item title or a notification body can never ride along in one of them.
+    @discardableResult
+    private func emitRetention(_ kind: AutoEvent, ids: [String: String], flags: [String: Bool]) -> Bool {
+        ensurePrepared()
+        guard !optedOut, analyticsCollectionEnabled, !stopped else { return false }
+        for (key, value) in ids {
+            do { try Validation.validate(featureKey: value) } catch {
+                logger.log(.warning, "dropped \(kind.rawValue): \(key) \"\(value)\" must be lowercase snake_case")
+                return false
+            }
+        }
+        var props: [String: PropertyValue] = ids.mapValues { .string($0) }
+        for (key, value) in flags { props[key] = .bool(value) }
+        push(system(kind, sessionId: liveSessionId(), properties: props))
+        scheduleFlushIfNeeded()
+        return true
+    }
+
     func identify(userId: String, traits: [String: String] = [:]) {
         ensurePrepared()
         guard !optedOut, analyticsCollectionEnabled else { return }
@@ -339,6 +381,8 @@ actor EventPipeline {
         ensurePrepared()
         optedOut = true
         kv.set("1", forKey: "opt_out")
+        // Forget the last permission sent, so opting back in reports the current one again.
+        kv.set(nil, forKey: Self.notificationPermissionKey)
         queue.removeAll()
         try? store.replaceAll([])
         identityStore.wipe()

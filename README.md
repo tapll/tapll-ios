@@ -183,6 +183,33 @@ before you set it cannot be linked afterwards, so set it before your first relea
 Using RevenueCat instead? Set the subscriber attribute `tapll_install_id` to `Tapll.installId`, and call
 `Tapll.identify(userId:)` with the same id you give RevenueCat as `app_user_id`.
 
+## Retention helpers
+
+Report the facts that decide whether people come back, so the panel can split retention by them.
+Values are your ids (`snake_case`), never a title or body.
+
+```swift
+// Asking for a review: decide with ReviewPolicy, ask with StoreKit, report it.
+let reviews = ReviewPolicy(minSuccesses: 3, minDaysSinceFirstUse: 1)
+reviews.recordSuccess()                       // wherever a "win" happens
+if reviews.shouldAsk {
+    requestReview()                           // SwiftUI's @Environment(\.requestReview)
+    reviews.markAsked()
+    Tapll.reviewRequested(source: "task_completed")
+}
+
+// Notification permission: the dialog's answer, and the current status on every foreground.
+let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+Tapll.notificationPermission(granted ? .granted : .denied, prompted: true)
+Tapll.notificationPermission(.granted, prompted: false)   // unchanged status sends nothing
+
+// A notification was opened (from userNotificationCenter(_:didReceive:)).
+Tapll.notificationOpened(kind: "due", action: "open")
+```
+
+`ReviewPolicy` keeps its counters on the device and answers yes at most once per app version. The SDK never
+registers for push and never schedules notifications.
+
 ## Using Tapll from Flutter or React Native
 
 Cross-platform apps should use the Tapll wrappers (`tapll` for Flutter, `@tapll/react-native` for React Native) rather than calling this package from Dart or JavaScript. The wrappers sit on top of this SDK and forward to it, so sessions, queueing, retries, privacy modes and crash files stay the native SDK's, and reports from a wrapped app carry the wrapper's name and version. You still add this package to the iOS side through the wrapper's own setup instructions.

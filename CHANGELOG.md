@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+- **Retention helpers.** Three reported facts the panel can split retention by:
+  - `Tapll.reviewRequested(source:)` → `$review_requested`, right after the app calls `requestReview()`.
+  - `Tapll.notificationPermission(_:prompted:)` → `$notification_permission`, sent only when the status
+    changed since the last report, so calling it on every foreground costs nothing.
+  - `Tapll.notificationOpened(kind:action:)` → `$notification_opened` for a tap or an action button.
+  Values are ids validated with the event-name alphabet; free text is dropped, never sent.
+- `ReviewPolicy(minSuccesses:minDaysSinceFirstUse:)`: `recordSuccess()`, `shouldAsk`, `markAsked()`.
+  It decides when to ask (once per app version) and never asks itself.
+- Requires a server with these names in its contract: an unknown `$` event rejects the whole batch.
+
 ## 0.6.1
 
 ### Fixed
